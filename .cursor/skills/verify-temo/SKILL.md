@@ -151,3 +151,9 @@ If interrupted in a way that prevents Python cleanup, use the exact scratch path
 Run `python3 .cursor/skills/verify-temo/verify-keyboard.py --evidence "$EVIDENCE"` for the Linux-only safe keyboard smoke, `.cursor/skills/verify-temo/verify.py --evidence "$EVIDENCE"` for extended loopback terminal checks, and `.cursor/skills/verify-temo/verify-release.py --evidence "$RELEASE_EVIDENCE"` for snapshot and installer checks. Use a separate empty evidence directory for each. All helpers use Python's standard library plus their listed command-line tools. Review the helpers before execution when permissions or endpoint rules differ.
 
 Use `/maintain-verification-skill` after behavior changes. Keep source coverage and runtime coverage separate. A real-tailnet check requires a separately approved disposable node and is not part of this safe default recipe.
+
+## Self-update checks
+
+Read [self-update](features/self-update.md) when touching update.go, update_cli.go, release provenance, VERSION, or release packaging. Run the isolated Go fixture suite on Linux and macOS. It never downloads or installs a real release and never alters a running executable. Preserve the existing terminal and backend recipes.
+
+The self-update tests and recipes added for 0.3.0 are not evidence of a live GitHub upgrade. Record the exact tested commit and CI URL in the PR. Never create a release or tag as part of verification without separate authorization.
