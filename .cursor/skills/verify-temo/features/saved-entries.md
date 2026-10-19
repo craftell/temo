@@ -28,4 +28,4 @@ The host list follows Include files and skips wildcard patterns and Match blocks
 
 Editing requires a confirmed stopped state before opening and saving. A pending check, a status error, an active route, or retained ownership needing cleanup must not bypass this guard. Refresh is read-only and leaves stale ownership records intact; explicit stop releases those records before editing. Definitions remain saved after stop.
 
-The scratch config and generated alias are test fixtures, not normal user definitions. The updated loopback recipe still needs a fresh run; source coverage and runtime coverage are separate.
+The scratch config and generated alias are test fixtures, not normal user definitions. The updated loopback recipe passed on Linux for this branch. Source coverage and runtime coverage stay separate, and that run did not use a native macOS terminal.

@@ -7,7 +7,7 @@ description: Verify temo after UI, connection, release, or installer changes. Dr
 
 Run the [feature map](features/README.md) against the built app. The bundled helper drives every mapped feature through terminal keys, not internal model calls.
 
-The earlier terminal recipe passed on Linux amd64 with Go 1.25.5, tmux 3.4, and OpenSSH 9.6p1, including real loopback forwarding. The new Linux keyboard smoke passed for commit `8333e4a` in [CI](https://github.com/craftell/temo/actions/runs/39228871170). The extended loopback journey has not been rerun for the tab, form-key, and asynchronous-refresh changes. For later changes, inspect that commit's CI result and retained artifacts before claiming runtime coverage. Serve remains stubbed. Real Tailscale mutations, tailnet HTTPS, a graphical browser, and macOS terminal behavior remain unverified.
+Last executed on Linux amd64 with Go 1.25.5, tmux 3.4, and OpenSSH 9.6p1, on `fix/keyboard-navigation-and-status` at base `8a17233` plus the start-failure wording fix. Both [verify-keyboard.py](verify-keyboard.py) and [verify.py](verify.py) printed PASS, and `GOFLAGS=-buildvcs=false` was set for the local build (see Launch). The extended run covered real loopback SSH forwarding, stale and failed-start ownership, the tab and refresh journeys below, and quit during refresh. Serve remains stubbed. Not run: native macOS terminal, real Tailscale Serve or Funnel, tailnet HTTPS, and a graphical browser. After later changes, rerun the helpers or inspect that commit's CI result and retained artifacts before claiming runtime coverage.
 
 ## Safe keyboard smoke (Linux CI)
 
@@ -92,6 +92,10 @@ The executable [verify.py](verify.py) drives these journeys in one private tmux 
 7. Refuse changed routes, changed node identity, unmanaged ports, Funnel, foreground sessions, unknown fields, and invalid JSON. Check that refused operations issue no mutating command.
 8. Add remote Serve through the real scratch SSH server. Start, refresh, open its URL, and stop against the same stub.
 9. Simulate a Serve command that applies a route and then fails. Confirm pending ownership blocks stop and no automatic rollback occurs. Display a long backend error and verify that PageDown and PageUp move the details view.
+10. Stale SSH ownership: kill the real scratch ControlMaster from outside. Refresh must show `stopped; cleanup needed` and keep the journal byte for byte. Edit must be refused. Stop must release the journal and the socket record.
+11. Failed SSH start: occupy the local port first. Start must fail with `start outcome may be uncertain; use Stop (x)` and keep a pending journal. Refresh and a retried start must refuse to change it. Stop must release it.
+12. Stale Serve ownership: remove the stub route after a start. Refresh must show `stopped; cleanup needed` and issue no mutating stub command. Stop must release ownership without touching the route.
+13. Tabs and refresh: seed five more Serve entries (two through SSH) beside the existing entries. Check that the SSH and Serve lists and filters are independent and that the config path opens during a sweep. With a slow stub, three `r` presses must produce one status call per Serve entry (six), at most four concurrent, and navigation must keep working. A further sweep cut short by quit must kill its local check processes before they finish, and config and ownership bytes must not change.
 
 For a manual replay, use the source entry points and key sequences in each feature file. Send Escape as its own key event. The helper spaces key events by 150 ms to avoid treating consecutive Escapes as an Alt sequence.
 

@@ -18,6 +18,8 @@ Require setup-ready in the terminal, an active mode-0600 ownership journal, and 
 
 After `q`, require that HTTP still responds. Reopen and refresh the route, stop it, and require that the forwarded listener disappears. An unrelated scratch ControlMaster must still answer `-O check`. Starting an alias with inherited forwarding rules must fail before a master is created.
 
+Kill the scratch master from outside: refresh must show `stopped; cleanup needed`, leave the journal bytes unchanged, and Stop must release it. Start on an occupied local port must leave a pending journal and say `start outcome may be uncertain; use Stop (x)`. Refresh and retry must refuse, and Stop must release it.
+
 The opener log must contain the selected loopback HTTP URL. This checks URL dispatch, not a graphical browser.
 
 ## Gotchas

@@ -28,8 +28,13 @@ if a == ["status", "--json"]:
     if mode == "diagnostic":
         print("diagnostic failure " + " ".join("line-%03d" % i for i in range(150)), file=sys.stderr)
         sys.exit(1)
+    def span(event):
+        with (p / "status-spans.jsonl").open("a") as f:
+            f.write(json.dumps({"event": event, "pid": os.getpid(), "ppid": os.getppid(), "t": time.time()}) + "\\n")
+    span("start")
     if mode == "slow":
         time.sleep(1.5)
+    span("end")
     print(json.dumps({"BackendState":"Running", "Self":{
         "ID":"changed" if mode == "node" else "lab-node",
         "DNSName":"lab.example.ts.net."}}))
@@ -239,9 +244,11 @@ Host inherited
             time.sleep(0.1)
         self.tmux("kill-session", "-t", "app")
 
-    def add(self, name, kind="ssh", host="lab", local=None, serve=8443, pick_host=False):
+    def add(self, name, kind="ssh", host="lab", local=None, serve=8443, pick_host=False, advance="Tab"):
         self.key("1" if kind == "ssh" else "2", "a")
-        self.wait("Add route", "add-form")
+        form = self.wait("Add route", "add-form")
+        assert ("HTTPS port" in form) == (kind == "serve"), "form shows the wrong kind's fields"
+        assert ("Local port" in form) == (kind == "ssh"), "form shows the wrong kind's fields"
         values = ([name, host, "127.0.0.1", str(self.target), str(local or self.local)]
                   if kind == "ssh" else [name, host, str(self.target), str(serve)])
         for index, value in enumerate(values):
@@ -256,7 +263,7 @@ Host inherited
                 self.wait("Add route", "ssh-host-in-form")
             elif value:
                 self.text(value)
-            self.key("Tab")
+            self.key(advance)
         self.capture("filled-form")
         self.key("C-s")
         self.wait("Saved " + name, "saved")
@@ -286,6 +293,156 @@ Host inherited
         before = self.mutation_count()
         self.action(key, expected, label)
         assert self.mutation_count() == before, "refused operation mutated Tailscale"
+
+    def entry_named(self, cfgpath, name):
+        return next(e for e in json.loads(cfgpath.read_text())["entries"] if e["name"] == name)
+
+    def stale_ssh(self, cfgpath):
+        entry = self.entry_named(cfgpath, "local-ssh")
+        owner = self.config / ("owner-" + entry["id"] + ".json")
+        control = self.config / (entry["id"] + ".sock")
+        self.action("s", "State: setup ready", "stale-ssh-start")
+        assert owner.exists() and control.exists()
+        self.run(["/usr/bin/ssh", "-F", "/dev/null", "-S", control, "-O", "exit", "lab"])
+        deadline = time.monotonic() + 5
+        while control.exists():
+            assert time.monotonic() < deadline, "owned SSH master did not exit"
+            time.sleep(0.1)
+        with socket.socket() as s:
+            assert s.connect_ex(("127.0.0.1", entry["local_port"])) != 0, "forward survived master exit"
+        before, mtime = owner.read_bytes(), owner.stat().st_mtime_ns
+        screen = self.action("r", "stopped; cleanup needed", "stale-ssh-observed")
+        assert "[stopped; cleanup needed] local-ssh" in screen
+        assert owner.read_bytes() == before and owner.stat().st_mtime_ns == mtime, "refresh changed the ownership journal"
+        self.action("e", "Editing requires a stopped route", "stale-ssh-edit-refused")
+        assert owner.read_bytes() == before
+        self.action("x", "stop local-ssh: No managed backend is active", "stale-ssh-released")
+        assert not owner.exists(), "explicit stop kept confirmed-stale ownership"
+        self.action("e", "Edit route", "stale-ssh-edit-allowed")
+        self.key("Escape")
+        self.wait("Edit cancelled", "stale-ssh-edit-cancelled")
+        self.note("SSH: absent master with retained ownership shows cleanup needed; refresh kept the journal; Stop released it")
+
+    def failed_ssh_start(self, cfgpath):
+        self.add("busy-ssh", local=self.target)
+        self.select("busy-ssh")
+        owner = self.config / ("owner-" + self.entry_named(cfgpath, "busy-ssh")["id"] + ".json")
+        self.action("s", "start outcome may be uncertain", "busy-ssh-start-failed")
+        self.key("d")
+        failure = self.capture("busy-ssh-start-failure-details")
+        assert "Stop" in failure and "refresh before retrying" not in failure, "failure does not say how to recover"
+        self.key("Escape")
+        assert json.loads(owner.read_text())["phase"] == "pending"
+        before = owner.read_bytes()
+        self.action("r", "use explicit stop before retrying", "busy-ssh-refresh-keeps-pending")
+        assert owner.read_bytes() == before, "refresh changed a pending ownership journal"
+        self.action("s", "use explicit stop before retrying", "busy-ssh-retry-refused")
+        assert owner.read_bytes() == before
+        self.action("x", "stop busy-ssh: No managed backend is active", "busy-ssh-released")
+        assert not owner.exists()
+        self.note("SSH: failed start keeps a pending journal; refresh and retry refuse; Stop releases it")
+
+    def stale_serve(self, cfgpath):
+        entry = self.entry_named(cfgpath, "local-serve")
+        owner = self.config / ("owner-" + entry["id"] + ".json")
+        self.action("s", "State: setup ready", "stale-serve-start")
+        assert json.loads(owner.read_text())["phase"] == "active"
+        self.fixture({})
+        before, mutations = owner.read_bytes(), self.mutation_count()
+        screen = self.action("r", "stopped; cleanup needed", "stale-serve-observed")
+        assert "[stopped; cleanup needed] local-serve" in screen
+        assert owner.read_bytes() == before and self.mutation_count() == mutations
+        self.action("e", "Editing requires a stopped route", "stale-serve-edit-refused")
+        self.action("x", "stop local-serve: No managed backend is active", "stale-serve-released")
+        assert not owner.exists(), "explicit stop kept confirmed-stale ownership"
+        assert self.mutation_count() == mutations, "releasing stale ownership mutated Serve"
+        self.note("Serve: route removed outside temo shows cleanup needed; refresh kept the journal; Stop released it without a mutation")
+
+    def spans_since(self, mark):
+        path = self.root / "status-spans.jsonl"
+        rows = [json.loads(line) for line in path.read_text().splitlines()] if path.exists() else []
+        return rows[mark:]
+
+    def span_count(self):
+        return len(self.spans_since(0))
+
+    def pane_pid(self):
+        return int(self.tmux("display-message", "-p", "-t", "app", "#{pane_pid}").stdout.strip())
+
+    def tabs_and_refresh(self, cfgpath):
+        saved = cfgpath.read_bytes()
+        self.quit()
+        config = json.loads(saved)
+        for i in range(1, 6):
+            seed = {"id": "%016x" % (0xfeed0000 + i), "name": f"seed-{i}", "kind": "serve",
+                    "target_host": "127.0.0.1", "target_port": self.target, "serve_port": 8600 + i}
+            if i >= 4:
+                seed["ssh_host"] = "lab"
+            config["entries"].append(seed)
+        cfgpath.write_text(json.dumps(config, indent=2) + "\n")
+        total = len(config["entries"])
+        checked = f"Checked {total} routes; 0 errors"
+        self.launch()
+        self.wait(checked, "seeded-startup-sweep")
+        ssh_tab = self.capture("tab-ssh")
+        assert "> [1 SSH]" in ssh_tab and "local-ssh" in ssh_tab and "inherited-ssh" in ssh_tab
+        assert "seed-1" not in ssh_tab and "local-serve" not in ssh_tab
+        self.key("Right")
+        serve_tab = self.wait("seed-1", "tab-serve")
+        assert "> [2 Serve]" in serve_tab and "local-serve" in serve_tab and "local-ssh" not in serve_tab
+        self.key("Left", "/")
+        self.text("inherited")
+        self.key("Enter", "Right", "Left")
+        filtered = self.capture("tab-filter-kept")
+        assert "Filter: inherited" in filtered and "seed-1" not in filtered
+        self.key("Right")
+        assert "Filter: inherited" not in self.capture("tab-filter-independent")
+        (self.root / "mode").write_text("slow")
+        mark = self.span_count()
+        calls_before = len((self.root / "tailscale-calls.jsonl").read_text().splitlines())
+        self.key("r", "r", "r")
+        progress = self.capture("refresh-in-flight")
+        assert "Refreshing " in progress and "[checking]" in progress and "[queued]" in progress
+        self.key("Down", "Down", "Up")
+        moved = self.capture("navigation-during-refresh")
+        assert "Refreshing " in moved
+        assert any(line.startswith("> [") and "seed-1" in line for line in moved.splitlines())
+        self.key("p")
+        assert str(cfgpath) in self.capture("config-path-during-refresh")
+        self.key("Escape")
+        self.wait(checked, "refresh-complete")
+        spans = self.spans_since(mark)
+        starts = [row for row in spans if row["event"] == "start"]
+        assert len(starts) == 6, f"expected one status call per Serve entry, saw {len(starts)}"
+        level = peak = 0
+        for row in sorted(spans, key=lambda r: r["t"]):
+            level += 1 if row["event"] == "start" else -1
+            peak = max(peak, level)
+        assert peak == 4, f"expected exactly four concurrent checks, saw {peak}"
+        calls = [json.loads(s) for s in (self.root / "tailscale-calls.jsonl").read_text().splitlines()[calls_before:]]
+        assert sum(c == ["serve", "status", "--json"] for c in calls) == 6 and not any("--bg" in c for c in calls)
+        self.note(f"Refresh: {len(starts)} checks for 3 coalesced r presses, peak {peak} in flight")
+        guarded = [self.config / name for name in sorted(os.listdir(self.config)) if name.endswith(".json")]
+        hashes = {str(path): path.read_bytes() for path in guarded}
+        mark = self.span_count()
+        self.key("r")
+        time.sleep(0.5)
+        pid = self.pane_pid()
+        self.quit()
+        time.sleep(2.5)
+        children = [row for row in self.spans_since(mark) if row["ppid"] == pid]
+        started = {row["pid"] for row in children if row["event"] == "start"}
+        finished = {row["pid"] for row in children if row["event"] == "end"}
+        assert started and not finished, f"quit did not cancel in-flight checks: started={started} finished={finished}"
+        for child in started:
+            with contextlib.suppress(ProcessLookupError):
+                os.kill(child, 0)
+                raise AssertionError(f"check process {child} survived quit")
+        assert {str(path): path.read_bytes() for path in guarded} == hashes, "quit during refresh changed config or ownership"
+        self.note(f"Quit during refresh killed {len(started)} local check processes before they finished")
+        cfgpath.write_bytes(saved)
+        (self.root / "mode").write_text("normal")
+        self.launch()
 
     def drive(self):
         self.wait("No matching routes", "empty")
@@ -357,7 +514,9 @@ Host inherited
             time.sleep(0.1)
         self.run(["/usr/bin/ssh", "-F", "/dev/null", "-S", self.unrelated, "-O", "check", "lab"])
         self.note("Unrelated ControlMaster survives managed stop")
-        self.add("inherited-ssh", host="inherited", local=free_port())
+        self.stale_ssh(cfgpath)
+        self.failed_ssh_start(cfgpath)
+        self.add("inherited-ssh", host="inherited", local=free_port(), advance="Down")
         self.action("s", "inherits forwarding rules", "inherited-refused")
         self.add("local-serve", kind="serve", host="")
         self.action("r", "State: stopped", "serve-stopped")
@@ -391,6 +550,7 @@ Host inherited
         self.refused("x", "node identity changed", "serve-node-refused")
         (self.root / "mode").write_text("normal")
         self.action("x", "State: stopped", "serve-stop")
+        self.stale_serve(cfgpath)
         for label, value, expected in [
             ("unmanaged", original, "already configured outside temo"),
             ("funnel", {"AllowFunnel":{"lab.example.ts.net:8443":True}}, "Funnel is enabled"),
@@ -402,6 +562,7 @@ Host inherited
         (self.root / "mode").write_text("invalid")
         self.refused("s", "unsupported Serve status JSON", "serve-invalid-refused")
         (self.root / "mode").write_text("normal")
+        self.tabs_and_refresh(cfgpath)
         self.add("remote-serve", kind="serve", host="lab", serve=9443)
         self.action("s", "State: setup ready", "remote-serve-start")
         assert "9443" in json.loads((self.root / "serve.json").read_text())["TCP"]

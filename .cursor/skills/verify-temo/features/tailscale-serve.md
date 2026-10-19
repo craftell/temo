@@ -18,6 +18,8 @@ Require stopped, setup-ready, refresh, URL dispatch, and stop screens. Inspect `
 
 Change only the stub fixture to introduce drift, a different node, an occupied port, Funnel, a foreground session, unknown fields, or invalid JSON. Each attempt must show the matching error and issue no mutating stub command. A simulated failure after applying a route must leave pending ownership. A later stop must refuse mutation rather than adopt or roll back the route.
 
+Remove the stub route after a start: refresh must show `stopped; cleanup needed` with no mutating stub call and unchanged ownership. Stop must then release ownership without any mutating call.
+
 ## Gotchas
 
 The stub does not provide HTTPS, certificates, a real Tailscale daemon, or a tailnet connection. Real Tailscale has not been exercised by this recipe. Do not mutate a user's node to fill that gap. A future real check needs a separately approved disposable node and explicit command approval.

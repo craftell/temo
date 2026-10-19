@@ -18,6 +18,8 @@ Run the safe keyboard smoke from [the skill](../SKILL.md#safe-keyboard-smoke-lin
 
 The status fixture holds Serve reads open. Navigate while `Refreshing N/T (all tabs)` is visible. Start, stop, and edit on a pending entry must remain guarded. After releasing the fixture, require stopped status for both tabs and unchanged config/ownership bytes. Start another refresh, quit while its child is blocked, and require both the app and child to exit before cleanup. Completed entries can be acted on while other entries are still being inspected.
 
+The extended helper's tabs-and-refresh journey slows the Serve stub and counts its status calls. Three `r` presses must yield one call per Serve entry, with exactly four in flight at the peak, and quit during a sweep must kill the check processes. Its stale-ownership journeys require `stopped; cleanup needed` after refresh with the journal unchanged, and Stop must release it.
+
 Run [the extended helper](../SKILL.md#launch) for host selection, validation and backend errors, help, and resize coverage: 60 by 20, the too-small 40 by 10 warning, and the restored 100 by 32 view. A name containing q must save without quitting.
 
 Display its long diagnostic in a 50 by 14 terminal. PageDown must change the details range from `Details 1-`; PageUp must restore the first range. An error that fits without scrolling does not prove scrolling.
@@ -26,4 +28,4 @@ Display its long diagnostic in a 50 by 14 terminal. PageDown must change the det
 
 Send Escape key events separately with time for the terminal parser to resolve each event. Consecutive Escapes in one burst can become an Alt sequence. A process check alone does not prove rendering; old raw terminal text is not the current screen.
 
-Read-only refresh is cancellable. An actual start, stop, open, or save operation retains the wait-before-quit guard. Do not confuse the two modes. Run the changed helpers and inspect their result and evidence before treating this source-aligned recipe as newly verified.
+Read-only refresh is cancellable. An actual start, stop, open, or save operation retains the wait-before-quit guard. Do not confuse the two modes. After changing refresh code, rerun both helpers and inspect their evidence.
