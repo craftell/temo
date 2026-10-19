@@ -82,6 +82,7 @@ type Store struct {
 }
 
 func OpenStore(dir string) (*Store, error) {
+	if strings.Contains(dir, "%") { return nil, errors.New("config directory cannot contain SSH percent-expansion tokens") }
 	if err := os.MkdirAll(dir, 0700); err != nil { return nil, err }
 	info, err := os.Lstat(dir)
 	if err != nil { return nil, err }

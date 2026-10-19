@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"os/exec"
@@ -116,15 +117,17 @@ func (g *Engine) ssh(ctx context.Context, e Entry, action string) (Result, error
 		return err
 	}
 	if owned {
-		if err := control("check"); err == nil {
+		checkErr := control("check")
+		if checkErr == nil {
+			if action != "stop" && o.Phase != "active" { return Result{}, errors.New("SSH start outcome is uncertain; its owned master is alive, use explicit stop before retrying") }
 			if action != "stop" { return ready(fmt.Sprintf("http://127.0.0.1:%d", e.LocalPort)), nil }
 			if err := control("exit"); err != nil { return Result{}, err }
 			if err := g.forget(e); err != nil { return Result{}, err }
 			return stopped(), nil
 		}
-		if _, err := os.Lstat(socket); err == nil { return Result{}, errors.New("owned control socket exists but check failed; inspect it manually, no process was stopped") }
+		if errors.Is(checkErr, exec.ErrNotFound) || ctx.Err() != nil { return Result{}, checkErr }
+		if _, err := os.Lstat(socket); err == nil { return Result{}, errors.New("owned control socket exists but check failed; inspect it manually, no process was stopped") } else if !errors.Is(err, os.ErrNotExist) { return Result{}, err }
 		if err := g.forget(e); err != nil { return Result{}, err }
-		_ = o
 	}
 	if action != "start" { return stopped(), nil }
 	if _, err := os.Lstat(socket); err == nil { return Result{}, errors.New("unmanaged control socket exists; refusing to reuse it") } else if !errors.Is(err, os.ErrNotExist) { return Result{}, err }
@@ -183,7 +186,10 @@ func canonical(raw []byte) (string, error) {
 
 func portSnapshot(raw []byte, port int) (string, bool, error) {
 	var c serveConfig
-	if err := json.Unmarshal(raw, &c); err != nil { return "", false, fmt.Errorf("invalid Serve status JSON: %w", err) }
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&c); err != nil { return "", false, fmt.Errorf("invalid or unsupported Serve status JSON: %w", err) }
+	if decoder.Decode(new(any)) != io.EOF { return "", false, errors.New("unexpected trailing Serve status JSON") }
 	p := strconv.Itoa(port)
 	v := portView{TCP: c.TCP[p], Web: map[string]json.RawMessage{}}
 	for hp, web := range c.Web {

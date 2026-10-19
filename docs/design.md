@@ -26,3 +26,5 @@ SSH control checks prove a master is alive. ExitOnForwardFailure proves forwardi
 A stopped backend must be confirmed before changing a definition. Missing dependencies and unreadable backend state are errors, not a stopped result.
 
 Persistent backends remain after TUI quit. This reversible default avoids interrupting development work. Use explicit stop before removing the config directory.
+
+Remote Serve requires a stable single-node SSH alias. Each fixed command uses a separate SSH connection. Alias changes, load balancing, and Tailscale profile switches during an operation are unsupported. Node identity checks are not atomic across those external changes. Session-pinned transport is future work.

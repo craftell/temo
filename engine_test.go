@@ -101,6 +101,9 @@ func TestServeSnapshotRejectsFunnelAndForeground(t *testing.T) {
 		`{"Foreground":{"session":{"TCP":{"8443":{"HTTPS":true}}}}}`,
 		`{"Web":{"invalid":{}}}`,
 		`not json`,
+		`{"UnknownFutureConfig":{"8443":{}}}`,
+		`{} {}`,
+		`{"Foreground":{"session":{"UnknownFutureConfig":{}}}}`,
 	} {
 		if _,_,err := portSnapshot([]byte(raw),8443); err == nil { t.Fatalf("accepted %s",raw) }
 	}
@@ -109,4 +112,37 @@ func TestDependencyFailureIsNotStopped(t *testing.T) {
 	r := &fakeRunner{run:func(string,[]string)([]byte,error){return nil,errors.New("missing tailscale")}}
 	g := Engine{Store:testStore(t),Runner:r}
 	if got:=g.Do(exampleServe(),"status");got.State!="error"{t.Fatal(got)}
+}
+
+func TestPendingSSHRequiresExplicitStop(t *testing.T) {
+	e := exampleSSH()
+	g := Engine{Store:testStore(t),Runner:&fakeRunner{}}
+	if err:=g.remember(Ownership{Entry:e,Phase:"pending"});err!=nil{t.Fatal(err)}
+	if got:=g.Do(e,"status");got.State!="error" || !strings.Contains(got.Detail,"uncertain"){t.Fatal(got)}
+	if got:=g.Do(e,"start");got.State!="error"{t.Fatal(got)}
+	if got:=g.Do(e,"stop");got.State!="stopped"{t.Fatal(got)}
+}
+
+func TestUnknownServeSchemaNeverMutates(t *testing.T) {
+	r:=&fakeRunner{run:func(_ string,args []string)([]byte,error){
+		if args[0]=="status"{return []byte(`{"BackendState":"Running","Self":{"ID":"node1","DNSName":"dev.example.ts.net."}}`),nil}
+		return []byte(`{"FutureRoutes":{"8443":{}}}`),nil
+	}}
+	g:=Engine{Store:testStore(t),Runner:r}
+	if got:=g.Do(exampleServe(),"start");got.State!="error"{t.Fatal(got)}
+	for _,c:=range r.calls{if contains(c.args,"--bg"){t.Fatal("mutated unknown schema")}}
+}
+
+func TestServeFailureKeepsPendingOwnership(t *testing.T) {
+	e:=exampleServe()
+	r:=&fakeRunner{run:func(_ string,args []string)([]byte,error){
+		if args[0]=="status"{return []byte(`{"BackendState":"Running","Self":{"ID":"node1","DNSName":"dev.example.ts.net."}}`),nil}
+		if contains(args,"--bg"){return nil,errors.New("connection interrupted")}
+		return []byte("{}"),nil
+	}}
+	g:=Engine{Store:testStore(t),Runner:r}
+	if got:=g.Do(e,"start");got.State!="error"{t.Fatal(got)}
+	o,ok,err:=g.ownership(e)
+	if err!=nil || !ok || o.Phase!="pending"{t.Fatalf("ownership: %#v %v %v",o,ok,err)}
+	for _,c:=range r.calls{if contains(c.args,"off") || contains(c.args,"reset"){t.Fatal("automatic rollback")}}
 }

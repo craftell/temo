@@ -16,7 +16,9 @@ func exampleServe() Entry {
 }
 func testStore(t *testing.T) *Store {
 	t.Helper()
-	dir := filepath.Join(t.TempDir(), "private")
+	dir, err := os.MkdirTemp("", "temo-")
+	if err != nil { t.Fatal(err) }
+	t.Cleanup(func() { os.RemoveAll(dir) })
 	s, err := OpenStore(dir)
 	if err != nil { t.Fatal(err) }
 	t.Cleanup(func() { s.Close() })

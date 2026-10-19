@@ -25,8 +25,8 @@ The SSH alias must already work noninteractively. Authenticate and accept its ho
 - `/` searches names and connection details.
 - `a` adds an entry. `e` edits a stopped entry.
 - `s` starts the selected entry. `x` stops its managed backend.
-- `r` refreshes status. `o` opens the selected URL.
-- `?` shows help. `q` quits.
+- `r` refreshes the selected route's status. `o` opens the selected URL.
+- `d` or Enter shows full details. `?` shows help. `q` quits.
 - In a form, Tab changes fields, Ctrl+S saves, and Esc cancels.
 
 A ready status means the backend is configured. It does not prove that the application responds. SSH entries open an HTTP URL; use your own client for non-HTTP services.
@@ -43,7 +43,7 @@ SSH uses a dedicated ControlMaster socket, binds to 127.0.0.1, and preserves SSH
 
 Serve owns an entire dedicated HTTPS port with one root route to `http://127.0.0.1:PORT`. Choose an unused port such as 8443. It refuses occupied ports, Funnel on that port, foreground Serve sessions on that port, changed node identities, and observed changes to managed routes. It never invokes Funnel or resets Serve.
 
-Serve mutation uses the Tailscale CLI. Its before/after checks are not an atomic lock against other programs. A concurrent external writer can race with a change. Do not change the same device's Serve configuration concurrently. Strict conditional LocalAPI updates are future work.
+Serve mutation uses the Tailscale CLI. Its before/after checks are not an atomic lock against other programs. A concurrent external writer can race with a change. Do not change the same device's Serve configuration concurrently. Strict conditional LocalAPI updates are future work. Remote Serve requires a stable alias pointing to one node, not a load balancer. Do not change SSH aliases or Tailscale profiles during an operation. Each remote command opens a separate SSH connection, so node identity checking is not atomic across those changes.
 
 An interrupted or ambiguous Serve operation keeps a pending ownership record and blocks further mutation. Inspect `tailscale serve status --json` on the execution host before resolving it. There is no automatic rollback that could erase another program's change.
 
