@@ -207,8 +207,7 @@ func (m model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			if m.editor.picker != nil {
 				return m, nil
 			}
-			m.editor.fields[m.editor.focus].insert(msg.Content)
-			m.editor.err = ""
+			m.editor.input(msg)
 		} else if m.searching {
 			m.query.insert(msg.Content)
 			m.cursor = 0
@@ -349,8 +348,7 @@ func (m model) updateKey(key tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		case "shift+tab", "up":
 			m.editor.move(-1)
 		default:
-			m.editor.fields[m.editor.focus].edit(key)
-			m.editor.err = ""
+			m.editor.input(key)
 		}
 		return m, nil
 	}
@@ -422,9 +420,9 @@ func (m model) updateKey(key tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "k", "up":
 		m.cursor = uiClamp(m.cursor-1, 0, len(m.visible())-1)
 	case "pgdown":
-		m.cursor = uiClamp(m.cursor+max(1, m.height-13), 0, len(m.visible())-1)
+		m.cursor = uiClamp(m.cursor+m.tablePageSize(), 0, len(m.visible())-1)
 	case "pgup":
-		m.cursor = uiClamp(m.cursor-max(1, m.height-13), 0, len(m.visible())-1)
+		m.cursor = uiClamp(m.cursor-m.tablePageSize(), 0, len(m.visible())-1)
 	case "d", "enter":
 		if _, ok := m.selected(); ok {
 			m.details = true
@@ -433,7 +431,7 @@ func (m model) updateKey(key tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "a":
 		form := newUIEntryForm(Entry{
 			ID: NewID(), Kind: m.kind, TargetHost: "127.0.0.1",
-			TargetPort: 3000, LocalPort: 8080, ServePort: 8443,
+			TargetPort: 3000, LocalPort: 3000, ServePort: 8443,
 		}, true)
 		m.editor = &form
 		m.notice = ""
@@ -593,51 +591,6 @@ func (m model) View() tea.View {
 	return view
 }
 
-func (m model) listLines() []string {
-	indexes := m.visible()
-	filter := "Press / to filter by name, kind, or host."
-	if m.searching {
-		filter = "Search: " + m.query.view(max(1, m.width-8), true)
-	} else if len(m.query.value) > 0 {
-		filter = "Filter: " + safeText(string(m.query.value)) + "  (Esc clears)"
-	}
-	tabs := "> [1 SSH]   [2 Serve]"
-	if m.kind == "serve" {
-		tabs = "[1 SSH]   > [2 Serve]"
-	}
-	lines := []string{"temo | SSH forwarding and Tailscale Serve", tabs + "  Left/Right switch", fmt.Sprintf("%d %s routes | p config location", len(indexes), m.kind), filter}
-	rows := max(1, m.height-13)
-	cursor := uiClamp(m.cursor, 0, len(indexes)-1)
-	start := max(0, cursor-rows+1)
-	for row := 0; row < rows; row++ {
-		position := start + row
-		line := ""
-		if position < len(indexes) {
-			entry := m.cfg.Entries[indexes[position]]
-			marker := " "
-			if position == cursor {
-				marker = ">"
-			}
-			line = fmt.Sprintf("%s [%s] %s", marker, m.entryState(entry.ID), safeText(entry.Name))
-		} else if row == 0 {
-			line = "No matching routes. Press a to add one."
-		}
-		lines = append(lines, line)
-	}
-	details := []string{"", "No route selected.", "", "", "", "Application reachability is unverified.", ""}
-	if entry, ok := m.selected(); ok {
-		state := m.states[entry.ID]
-		details[1] = safeText(entry.Name) + " [" + safeText(entry.Kind) + "]"
-		details[2] = "Route: " + safeText(uiRouteSummary(entry))
-		details[3] = "State: " + m.entryState(entry.ID)
-		details[4] = "URL: " + safeText(state.URL)
-		details[6] = "Detail (d for full): " + safeText(state.Detail)
-	}
-	lines = append(lines, details...)
-	lines = append(lines, m.statusLine(), "↑/↓ j/k move  s start  x stop  r refresh  a add  e edit  ? help  q quit")
-	return lines
-}
-
 func (m model) detailText() []string {
 	var raw []string
 	if m.configDetails {
@@ -760,21 +713,49 @@ type uiHostPicker struct {
 }
 
 type uiEntryForm struct {
-	picker   *uiHostPicker
-	original Entry
-	isNew    bool
-	fields   [uiFieldCount]uiTextField
-	focus    int
-	err      string
+	picker                 *uiHostPicker
+	original               Entry
+	isNew                  bool
+	fields                 [uiFieldCount]uiTextField
+	focus                  int
+	err                    string
+	localPortFollowsTarget bool
 }
 
 func newUIEntryForm(entry Entry, isNew bool) uiEntryForm {
-	form := uiEntryForm{original: entry, isNew: isNew}
+	form := uiEntryForm{original: entry, isNew: isNew, localPortFollowsTarget: isNew && entry.Kind == "ssh"}
 	values := [...]string{entry.Name, entry.SSHHost, entry.TargetHost, strconv.Itoa(entry.TargetPort), strconv.Itoa(entry.LocalPort), strconv.Itoa(entry.ServePort)}
+	if form.localPortFollowsTarget {
+		values[uiLocalPort] = values[uiTargetPort]
+	}
 	for i, value := range values {
 		form.fields[i] = uiTextField{value: []rune(value), cursor: len([]rune(value))}
 	}
 	return form
+}
+
+func (f *uiEntryForm) input(message tea.Msg) {
+	field := &f.fields[f.focus]
+	before := string(field.value)
+	switch msg := message.(type) {
+	case tea.KeyPressMsg:
+		field.edit(msg)
+	case tea.PasteMsg:
+		field.insert(msg.Content)
+	default:
+		return
+	}
+	f.err = ""
+	if !f.localPortFollowsTarget || before == string(field.value) {
+		return
+	}
+	switch f.focus {
+	case uiLocalPort:
+		f.localPortFollowsTarget = false
+	case uiTargetPort:
+		value := append([]rune(nil), field.value...)
+		f.fields[uiLocalPort] = uiTextField{value: value, cursor: len(value)}
+	}
 }
 
 func (f uiEntryForm) visibleFields() []int {
@@ -863,6 +844,11 @@ func (m model) formLines() []string {
 	hint := "SSH host is required. Only SSH forwarding fields are shown."
 	if form.original.Kind == "serve" {
 		hint = "Blank SSH host = this machine. Target: localhost."
+	} else if form.isNew {
+		hint = "Local port is set independently."
+		if form.localPortFollowsTarget {
+			hint = "Local port follows target until edited."
+		}
 	}
 	return append(lines, hint, message, "Ctrl+S save  Ctrl+P hosts  Ctrl+D error  Esc cancel")
 }

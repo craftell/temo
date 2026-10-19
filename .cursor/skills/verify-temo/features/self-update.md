@@ -58,7 +58,7 @@ HOME="$SCRATCH/home" XDG_CONFIG_HOME="$SCRATCH/home/.config" "$SCRATCH/install/t
 
 The check is a read-only request to the public API. The update downloads the public archive and replaces only `$SCRATCH/install/temo`. Pick a stamped version below the latest published release, never the installed `temo`. Compare `--version` and the file hash before and after, and confirm `$SCRATCH/home` stays empty. A binary from a release older than 0.3.0 has no `update` command, so run `--version` on it and do not repeat `update`: without that subcommand the arguments start the TUI.
 
-The upgrade to the not-yet-published 0.3.0 and any run on macOS remain unexecuted until a release exists and is separately authorized. Do not tag or publish a fake release. Do not run self-update against a package-manager binary or the normal installed executable. Do not claim the 0.3.0 journey passed from fixture runs alone.
+The upgrade of a scratch 0.1.0 binary to the published v0.3.0 was executed on Linux amd64 at merge commit `04d1826` of the route-table branch: `update --check` reported `0.1.0 → v0.3.0`, `update` replaced only the scratch binary (`--version` then reported 0.3.0), the scratch HOME stayed empty, and only `temo` and `temo.update.lock` were in the install directory. A run on macOS and an upgrade to v0.4.0 remain unexecuted until that release exists and is separately authorized. Do not tag or publish a fake release. Do not run self-update against a package-manager binary or the normal installed executable. Do not claim a journey to a release passed from fixture runs alone.
 
 ## Gotchas
 
