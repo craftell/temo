@@ -80,7 +80,7 @@ func (m model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyPressMsg:
 		return m.updateKey(msg)
 	case tea.PasteMsg:
-		if m.busy != "" {
+		if m.busy != "" || m.details || m.help {
 			return m, nil
 		}
 		if m.editor != nil {
@@ -149,6 +149,24 @@ func (m model) updateKey(key tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	}
+	if m.details {
+		switch k {
+		case "d", "enter", "esc":
+			m.details = false
+		case "q":
+			return m.quit()
+		case "j", "down":
+			m.detailsOffset++
+		case "k", "up":
+			m.detailsOffset--
+		case "pgdown":
+			m.detailsOffset += max(1, m.height-2)
+		case "pgup":
+			m.detailsOffset -= max(1, m.height-2)
+		}
+		m.detailsOffset = uiClamp(m.detailsOffset, 0, max(0, len(m.detailText())-max(1, m.height-2)))
+		return m, nil
+	}
 	if m.editor != nil {
 		switch k {
 		case "esc":
@@ -156,6 +174,11 @@ func (m model) updateKey(key tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.notice = "Edit cancelled."
 		case "ctrl+s":
 			return m.saveEditor()
+		case "ctrl+d":
+			if m.editor.err != "" {
+				m.details = true
+				m.detailsOffset = 0
+			}
 		case "tab", "enter":
 			m.editor.focus = (m.editor.focus + 1) % len(m.editor.fields)
 		case "shift+tab":
@@ -177,24 +200,6 @@ func (m model) updateKey(key tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.query.edit(key)
 		}
 		m.cursor = 0
-		return m, nil
-	}
-	if m.details {
-		switch k {
-		case "d", "enter", "esc":
-			m.details = false
-		case "q":
-			return m.quit()
-		case "j", "down":
-			m.detailsOffset++
-		case "k", "up":
-			m.detailsOffset--
-		case "pgdown":
-			m.detailsOffset += max(1, m.height-2)
-		case "pgup":
-			m.detailsOffset -= max(1, m.height-2)
-		}
-		m.detailsOffset = uiClamp(m.detailsOffset, 0, max(0, len(m.detailText())-max(1, m.height-2)))
 		return m, nil
 	}
 	if m.help {
@@ -339,10 +344,10 @@ func (m model) View() tea.View {
 	switch {
 	case m.width < 50 || m.height < 14:
 		lines = []string{"temo", "Resize to at least 50 columns and 14 rows.", m.statusLine(), "q quits when idle; started routes persist."}
-	case m.editor != nil:
-		lines = m.formLines()
 	case m.details:
 		lines = m.detailLines()
+	case m.editor != nil:
+		lines = m.formLines()
 	case m.help:
 		lines = []string{
 			"temo help", "",
@@ -411,19 +416,29 @@ func (m model) listLines() []string {
 }
 
 func (m model) detailText() []string {
-	entry, ok := m.selected()
-	if !ok {
-		return []string{"No route selected."}
-	}
-	state := m.states[entry.ID]
-	raw := []string{
-		safeText(entry.Name) + " [" + safeText(entry.Kind) + "]",
-		"Route: " + safeText(uiRouteSummary(entry)),
-		"State: " + uiState(state),
-		"URL: " + safeText(state.URL),
-		"Application reachability is unverified.",
-		"",
-		"Detail: " + safeText(state.Detail),
+	var raw []string
+	if m.editor != nil {
+		raw = []string{
+			"Form error",
+			safeText(m.editor.err),
+			"",
+			"Press Esc to return to your unsaved form.",
+		}
+	} else {
+		entry, ok := m.selected()
+		if !ok {
+			return []string{"No route selected."}
+		}
+		state := m.states[entry.ID]
+		raw = []string{
+			safeText(entry.Name) + " [" + safeText(entry.Kind) + "]",
+			"Route: " + safeText(uiRouteSummary(entry)),
+			"State: " + uiState(state),
+			"URL: " + safeText(state.URL),
+			"Application reachability is unverified.",
+			"",
+			"Detail: " + safeText(state.Detail),
+		}
 	}
 	var lines []string
 	for _, line := range raw {
@@ -442,7 +457,7 @@ func (m model) detailLines() []string {
 	for len(lines) < m.height-1 {
 		lines = append(lines, "")
 	}
-	return append(lines, "j/k or PgUp/PgDown scroll  Esc return  q quit")
+	return append(lines, "j/k scroll  PgUp/PgDown page  Esc return  q quit")
 }
 
 func (m model) statusLine() string {
@@ -553,9 +568,9 @@ func (m model) formLines() []string {
 	}
 	message := m.statusLine()
 	if form.err != "" {
-		message = "Error: " + safeText(form.err)
+		message = "Error (Ctrl+D): " + safeText(form.err)
 	}
-	return append(lines, "Blank SSH host runs Serve on this machine.", "Only the selected kind's port is used.", message, "Ctrl+S save  Esc cancel  Left/Right move cursor")
+	return append(lines, "Blank SSH host runs Serve on this machine.", "Only the selected kind's port is used.", message, "Ctrl+S save  Ctrl+D full error  Esc cancel")
 }
 
 type uiTextField struct {

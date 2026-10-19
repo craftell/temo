@@ -17,25 +17,41 @@ func exampleServe() Entry {
 func testStore(t *testing.T) *Store {
 	t.Helper()
 	dir, err := os.MkdirTemp("", "temo-")
-	if err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
 	t.Cleanup(func() { os.RemoveAll(dir) })
 	s, err := OpenStore(dir)
-	if err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
 	t.Cleanup(func() { s.Close() })
 	return s
 }
 func TestConfigRoundTripAndLock(t *testing.T) {
 	s := testStore(t)
 	c := Config{Version: 1, Entries: []Entry{exampleSSH()}}
-	if err := s.Save(c); err != nil { t.Fatal(err) }
+	if err := s.Save(c); err != nil {
+		t.Fatal(err)
+	}
 	got, err := s.Load()
-	if err != nil || len(got.Entries) != 1 || got.Entries[0] != c.Entries[0] { t.Fatalf("roundtrip: %#v %v", got, err) }
+	if err != nil || len(got.Entries) != 1 || got.Entries[0] != c.Entries[0] {
+		t.Fatalf("roundtrip: %#v %v", got, err)
+	}
 	info, err := os.Stat(filepath.Join(s.Dir, "config.json"))
-	if err != nil || info.Mode().Perm() != 0600 { t.Fatalf("private config: %v %v", info, err) }
-	if other, err := OpenStore(s.Dir); err == nil { other.Close(); t.Fatal("second writer accepted") }
+	if err != nil || info.Mode().Perm() != 0600 {
+		t.Fatalf("private config: %v %v", info, err)
+	}
+	if other, err := OpenStore(s.Dir); err == nil {
+		other.Close()
+		t.Fatal("second writer accepted")
+	}
 }
 func TestInvalidDefinitions(t *testing.T) {
-	tests := []struct { name string; change func(*Entry) }{
+	tests := []struct {
+		name   string
+		change func(*Entry)
+	}{
 		{"argument injection", func(e *Entry) { e.SSHHost = "-oProxyCommand=evil" }},
 		{"shell injection", func(e *Entry) { e.SSHHost = "host;evil" }},
 		{"zero port", func(e *Entry) { e.LocalPort = 0 }},
@@ -43,18 +59,46 @@ func TestInvalidDefinitions(t *testing.T) {
 		{"control name", func(e *Entry) { e.Name = "bad\x1b[2J" }},
 		{"unknown kind", func(e *Entry) { e.Kind = "funnel" }},
 	}
-	for _, tt := range tests { t.Run(tt.name, func(t *testing.T) { e := exampleSSH(); tt.change(&e); if e.Validate() == nil { t.Fatal("invalid definition accepted") } }) }
-	e := exampleServe(); e.TargetHost = "example.com"
-	if e.Validate() == nil { t.Fatal("non-local Serve target accepted") }
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			e := exampleSSH()
+			tt.change(&e)
+			if e.Validate() == nil {
+				t.Fatal("invalid definition accepted")
+			}
+		})
+	}
+	e := exampleServe()
+	e.TargetHost = "example.com"
+	if e.Validate() == nil {
+		t.Fatal("non-local Serve target accepted")
+	}
 	c := Config{Version: 1, Entries: []Entry{exampleSSH(), exampleSSH()}}
-	if c.Validate() == nil { t.Fatal("duplicate accepted") }
+	if c.Validate() == nil {
+		t.Fatal("duplicate accepted")
+	}
 	c.Version = 2
-	if c.Validate() == nil { t.Fatal("future schema accepted") }
+	if c.Validate() == nil {
+		t.Fatal("future schema accepted")
+	}
 }
 func TestMalformedConfigFailsClosed(t *testing.T) {
 	s := testStore(t)
-	for _, raw := range []string{`{"version":1,"entries":[],"secret":"x"}`, `{"version":1} {}`, `{"version":2,"entries":[]}`} {
-		if err := os.WriteFile(filepath.Join(s.Dir, "config.json"), []byte(raw), 0600); err != nil { t.Fatal(err) }
-		if _, err := s.Load(); err == nil { t.Fatalf("accepted %s", raw) }
+	for _, raw := range []string{`null`, `{}`, `{"entries":[]}`, `{"version":1,"entries":[],"secret":"x"}`, `{"version":1} {}`, `{"version":2,"entries":[]}`} {
+		if err := os.WriteFile(filepath.Join(s.Dir, "config.json"), []byte(raw), 0600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := s.Load(); err == nil {
+			t.Fatalf("accepted %s", raw)
+		}
+	}
+}
+
+func TestStoreRejectsSSHPathExpansion(t *testing.T) {
+	for _, dir := range []string{"/tmp/temo-%h", "/tmp/temo-${HOME}"} {
+		if s, err := OpenStore(dir); err == nil {
+			s.Close()
+			t.Fatalf("accepted %q", dir)
+		}
 	}
 }
