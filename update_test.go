@@ -458,9 +458,18 @@ func TestUpdateRejectsInvalidAssetMetadata(t *testing.T) {
 		name   string
 		change func([]map[string]any) []map[string]any
 	}{
-		{"untrusted host", func(a []map[string]any) []map[string]any { a[0]["browser_download_url"] = "https://example.com/temo.tar.gz"; return a }},
-		{"wrong repository", func(a []map[string]any) []map[string]any { a[0]["browser_download_url"] = "https://github.com/other/temo/releases/download/v0.3.0/" + a[0]["name"].(string); return a }},
-		{"wrong tag", func(a []map[string]any) []map[string]any { a[0]["browser_download_url"] = "https://github.com/craftell/temo/releases/download/v0.2.0/" + a[0]["name"].(string); return a }},
+		{"untrusted host", func(a []map[string]any) []map[string]any {
+			a[0]["browser_download_url"] = "https://example.com/temo.tar.gz"
+			return a
+		}},
+		{"wrong repository", func(a []map[string]any) []map[string]any {
+			a[0]["browser_download_url"] = "https://github.com/other/temo/releases/download/v0.3.0/" + a[0]["name"].(string)
+			return a
+		}},
+		{"wrong tag", func(a []map[string]any) []map[string]any {
+			a[0]["browser_download_url"] = "https://github.com/craftell/temo/releases/download/v0.2.0/" + a[0]["name"].(string)
+			return a
+		}},
 		{"oversized asset", func(a []map[string]any) []map[string]any { a[0]["size"] = 65 << 20; return a }},
 		{"missing archive", func(a []map[string]any) []map[string]any { return a[1:] }},
 		{"duplicate archive", func(a []map[string]any) []map[string]any { return append(a, a[0]) }},

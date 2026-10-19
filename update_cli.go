@@ -20,7 +20,8 @@ func runUpdateCLI(args []string, out io.Writer) error {
 	if flags.NArg() != 0 {
 		return fmt.Errorf("usage: temo update [--check]")
 	}
-	result, err := newUpdater().Run(context.Background(), *check)
+	u := newUpdater()
+	result, err := u.Run(context.Background(), *check)
 	if err != nil {
 		return err
 	}
@@ -30,7 +31,12 @@ func runUpdateCLI(args []string, out io.Writer) error {
 	case result.CurrentUnknown:
 		fmt.Fprintf(out, "Current build: %s. Latest stable release: %s.\n", result.Current, result.Latest)
 	case result.Available:
-		fmt.Fprintf(out, "Update available: %s → %s. Run temo update to install.\n", result.Current, result.Latest)
+		fmt.Fprintf(out, "Update available: %s → %s.\n", result.Current, result.Latest)
+		if u.Channel == "github-release" {
+			fmt.Fprintln(out, "Run temo update to install.")
+		} else {
+			fmt.Fprintln(out, "Upgrade using your original install method (for Go installs: go install github.com/craftell/temo@latest).")
+		}
 	default:
 		fmt.Fprintf(out, "temo %s is up to date (latest stable: %s).\n", result.Current, result.Latest)
 	}
