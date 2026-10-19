@@ -119,7 +119,7 @@ class Lab:
         deadline = time.monotonic() + 30
         while time.monotonic() < deadline:
             screen = self.tmux("capture-pane", "-p", "-t", "app").stdout
-            if text in screen and "Working:" not in screen:
+            if text in screen and "Working:" not in screen and "Refreshing " not in screen:
                 self.capture(label)
                 return screen
             time.sleep(0.1)
@@ -228,7 +228,7 @@ Host inherited
                               "--config-dir", str(self.config)])
         self.tmux("new-session", "-d", "-s", "app", "-x", "100", "-y", "32", command)
         self.tmux("set-option", "-g", "remain-on-exit", "on")
-        self.wait("temo | SSH", "launch")
+        self.wait("[1 SSH]", "launch")
         self.note("doctor pane pid " + self.tmux("display-message", "-p", "-t", "app", "#{pane_pid}").stdout.strip())
 
     def quit(self):
@@ -240,12 +240,13 @@ Host inherited
         self.tmux("kill-session", "-t", "app")
 
     def add(self, name, kind="ssh", host="lab", local=None, serve=8443, pick_host=False):
-        self.key("a")
+        self.key("1" if kind == "ssh" else "2", "a")
         self.wait("Add route", "add-form")
-        values = [name, kind, host, "127.0.0.1", str(self.target), str(local or self.local), str(serve)]
+        values = ([name, host, "127.0.0.1", str(self.target), str(local or self.local)]
+                  if kind == "ssh" else [name, host, str(self.target), str(serve)])
         for index, value in enumerate(values):
             self.key("C-u")
-            if index == 2 and pick_host:
+            if index == 1 and pick_host:
                 self.key("C-p")
                 screen = self.wait("temo | SSH hosts", "ssh-host-list")
                 assert "inherited" in screen and "lab" in screen and "HostName" not in screen
@@ -261,7 +262,9 @@ Host inherited
         self.wait("Saved " + name, "saved")
 
     def select(self, name):
-        self.key("Escape", "/", "C-u")
+        entries = json.loads((self.config / "config.json").read_text())["entries"]
+        entry = next(e for e in entries if e["name"] == name)
+        self.key("Escape", "1" if entry["kind"] == "ssh" else "2", "/", "C-u")
         self.text(name)
         self.key("Enter")
         self.wait(name, "filtered")
@@ -309,9 +312,11 @@ Host inherited
         assert saved["name"] == "local-ssh" and saved["kind"] == "ssh"
         assert saved["ssh_host"] == "lab" and saved["target_host"] == "127.0.0.1"
         assert saved["target_port"] == self.target and saved["local_port"] == self.local
+        self.action("p", str(cfgpath), "actual-config-path")
+        self.key("Escape")
         self.key("/")
         self.text("does-not-match")
-        self.wait("0 of 1 routes", "search-empty")
+        self.wait("No matching routes", "search-empty")
         self.key("Escape")
         self.select("local-ssh")
         self.action("?", "temo help", "help")
@@ -358,12 +363,18 @@ Host inherited
         self.action("r", "State: stopped", "serve-stopped")
         (self.root / "mode").write_text("slow")
         before = self.mutation_count()
-        self.key("r", "s", "q")
-        busy = self.capture("busy-quit-refused")
-        assert "Wait for the current operation before quitting" in busy
-        self.wait("State: stopped", "busy-completed")
+        self.key("r", "s", "x", "e")
+        busy = self.capture("refresh-mutation-guard")
+        assert "Refreshing " in busy, "bulk status did not expose in-progress state"
+        self.key("Left", "Right")
+        self.wait("State: stopped", "refresh-completed")
+        assert self.mutation_count() == before
+        self.key("r")
+        self.quit()
         assert self.mutation_count() == before
         (self.root / "mode").write_text("normal")
+        self.launch()
+        self.select("local-serve")
         self.action("s", "State: setup ready", "serve-start")
         original = json.loads((self.root / "serve.json").read_text())
         self.action("o", "Opened URL", "serve-open")

@@ -8,7 +8,7 @@ Source entry points are `engine.go`'s `serve`, `portSnapshot`, `desiredSnapshot`
 
 ## How to get to it (user POV)
 
-Create a `serve` entry with target host `127.0.0.1` or `localhost`, a target port, and a dedicated HTTPS port. Blank SSH host selects this machine. An SSH alias selects remote execution. Use `s`, `r`, `o`, and `x` as for SSH entries.
+Select the Serve tab with 2 or Left/Right, then press a. Enter a name, target port, and dedicated HTTPS port; the localhost target is not an editable form field. Blank SSH host selects this machine. An SSH alias selects remote execution. Use s, o, and x on the selected entry. Startup and r inspect every saved entry across both tabs, without changing the Serve configuration or ownership files.
 
 ## Driving it with tmux
 

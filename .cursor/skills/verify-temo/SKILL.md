@@ -7,7 +7,24 @@ description: Verify temo after UI, connection, release, or installer changes. Dr
 
 Run the [feature map](features/README.md) against the built app. The bundled helper drives every mapped feature through terminal keys, not internal model calls.
 
-This recipe passed on Linux amd64 with Go 1.25.5, tmux 3.4, and OpenSSH 9.6p1. Real loopback forwarding passed. Serve uses a stub, including when reached over real loopback SSH. Real Tailscale mutations, tailnet HTTPS, a graphical browser, and macOS terminal behavior remain unverified.
+The earlier terminal recipe passed on Linux amd64 with Go 1.25.5, tmux 3.4, and OpenSSH 9.6p1, including real loopback forwarding. The new Linux keyboard smoke passed for commit `8333e4a` in [CI](https://github.com/craftell/temo/actions/runs/39228871170). The extended loopback journey has not been rerun for the tab, form-key, and asynchronous-refresh changes. For later changes, inspect that commit's CI result and retained artifacts before claiming runtime coverage. Serve remains stubbed. Real Tailscale mutations, tailnet HTTPS, a graphical browser, and macOS terminal behavior remain unverified.
+
+## Safe keyboard smoke (Linux CI)
+
+Use this focused check for tabs, form navigation, config-location discovery, and nonblocking status. It needs Python 3.9+ and Go 1.25+, with no tmux, SSH server, credentials, or network backend.
+
+```sh
+EVIDENCE=$(mktemp -d /tmp/temo-keyboard-evidence-XXXXXXXX)
+python3 .cursor/skills/verify-temo/verify-keyboard.py --evidence "$EVIDENCE"
+```
+
+The helper builds once, launches the real app in a private 120-by-32 PTY, and seeds four saved entries plus stale active ownership records in a temporary HOME/config directory. CI may pass `--binary ./temo` after its normal build. The app's PATH contains only stubs that allow exact SSH control checks and local/remote Serve status commands; they reject every other invocation. No SSH key, listener, tunnel, URL opener, or live Tailscale command is created.
+
+The doctor requires rendered SSH and Serve tabs and the expected selected fixture. The helper drives actual escape sequences for arrows and Shift+Tab, literal j/k, Enter, Tab, form cancellation, the p config-location view, and its help hint. It holds Serve reads behind a fixture gate while checking navigation and guarded actions on a pending entry. The first sweep must inspect all four entries despite the selected tab/filter. A second sweep is cancelled by q; the app and delayed child must stop before cleanup.
+
+Evidence includes numbered current-screen captures, terminal.raw, actions.log, backend.jsonl, before/after file hashes and permissions, fixture JSON, cancellation.json, environment.json, and result.txt. Assertions use a bounded VT screen model, not old text left in the output stream. An unsupported terminal sequence is a harness failure to investigate, not permission to weaken assertions. Config and ownership bytes must remain unchanged. PASS is written only after cleanup; failure evidence is retained and Linux CI uploads it even on failure.
+
+The helper terminates only its own PTY process group. Its fixture directory is retained at the path in environment.json and contains no credentials. This focused check does not replace the extended loopback journey below, Go race tests, or real-backend validation.
 
 ## Launch
 
@@ -20,7 +37,7 @@ EVIDENCE=$(mktemp -d /tmp/temo-evidence-XXXXXXXX)
 
 Requires Python 3.9+, Go 1.25+, tmux, OpenSSH client and server, ssh-keygen, and curl. On Linux, sshd's installed privilege-separation directory must already exist. Do not change the machine's normal sshd configuration to run this check.
 
-The helper builds `temo` in a mode-0700 scratch directory. It starts a private tmux server at 100 columns and 32 rows, a high-port loopback sshd, and a loopback HTTP server. The usable initial screen contains `temo | SSH` and `No matching routes`.
+The helper builds `temo` in a mode-0700 scratch directory. It starts a private tmux server at 100 columns and 32 rows, a high-port loopback sshd, and a loopback HTTP server. The usable initial screen contains `[1 SSH]`, `[2 Serve]`, and `No matching routes`.
 
 The TUI uses a scratch HOME. Its `.ssh/config` includes a scratch alias file. The SSH wrapper uses that generated config, an absolute Include path, throwaway keys, and a scratch known_hosts file. The scratch sshd disables password authentication and checks only its generated public key. Its `StrictModes no` setting permits an authorized-key file under `/tmp`. This is test setup, not a recommended SSH configuration. The helper does not change `~/.ssh`, use remote hosts, or access the machine's real Serve configuration.
 
@@ -64,14 +81,14 @@ A live process without the expected rendered screen is not a successful doctor c
 
 ## Drive
 
-The executable [verify.py](verify.py) drives these journeys in one private tmux server, reopening the app twice with the same scratch config.
+The executable [verify.py](verify.py) drives these journeys in one private tmux server, reopening the app with the same scratch config.
 
-1. Reject a second writer. Show an invalid form and its full error. Add an SSH entry, open Ctrl+P, pick `lab` from the included scratch Host names, and save. Reopen the picker while editing the stopped entry and confirm `lab` stays selected. Inspect the saved JSON and mode 0600.
-2. Search for a missing name and a saved name. Show help. Resize to 60 by 20, below the supported minimum, and back to 100 by 32.
+1. Reject a second writer. Show an invalid form and its full error. Add an SSH entry from the SSH tab, open Ctrl+P, pick `lab` from the included scratch Host names, and save. Reopen the picker while editing the stopped entry and confirm `lab` stays selected. Inspect the saved JSON and mode 0600.
+2. Open p and verify the actual config.json path. Search for a missing name and a saved name in the active tab. Show help. Resize to 60 by 20, below the supported minimum, and back to 100 by 32.
 3. Start real loopback SSH with an inherited `GatewayPorts yes`. Reach the HTTP target through `127.0.0.1` and reject a connection through `127.0.0.2`. Check the private active ownership record.
 4. Open the SSH URL through a logging opener stub. Refuse editing while active. Quit, confirm HTTP still responds, reopen, refresh, and stop. Confirm the forward disappears and an unrelated scratch ControlMaster survives.
 5. Reject an SSH alias with an inherited forwarding rule.
-6. Add local Serve against the stub. Check stopped, start, status, URL opening, and quit/reopen. While a delayed status runs, refuse start and quit.
+6. Add local Serve from its tab against the stub. Check stopped, start, status, URL opening, and quit/reopen. While delayed read-only status runs, refuse start/stop/edit on the pending entry, navigate between tabs, and permit quit. Reopen before continuing.
 7. Refuse changed routes, changed node identity, unmanaged ports, Funnel, foreground sessions, unknown fields, and invalid JSON. Check that refused operations issue no mutating command.
 8. Add remote Serve through the real scratch SSH server. Start, refresh, open its URL, and stop against the same stub.
 9. Simulate a Serve command that applies a route and then fails. Confirm pending ownership blocks stop and no automatic rollback occurs. Display a long backend error and verify that PageDown and PageUp move the details view.
@@ -127,6 +144,6 @@ If interrupted in a way that prevents Python cleanup, use the exact scratch path
 
 ## Helpers
 
-Run `.cursor/skills/verify-temo/verify.py --evidence "$EVIDENCE"` for terminal checks and `.cursor/skills/verify-temo/verify-release.py --evidence "$RELEASE_EVIDENCE"` for snapshot and installer checks. Both use Python's standard library plus the listed command-line tools. Review the helpers before execution when permissions or endpoint rules differ.
+Run `python3 .cursor/skills/verify-temo/verify-keyboard.py --evidence "$EVIDENCE"` for the Linux-only safe keyboard smoke, `.cursor/skills/verify-temo/verify.py --evidence "$EVIDENCE"` for extended loopback terminal checks, and `.cursor/skills/verify-temo/verify-release.py --evidence "$RELEASE_EVIDENCE"` for snapshot and installer checks. Use a separate empty evidence directory for each. All helpers use Python's standard library plus their listed command-line tools. Review the helpers before execution when permissions or endpoint rules differ.
 
 Use `/maintain-verification-skill` after behavior changes. Keep source coverage and runtime coverage separate. A real-tailnet check requires a separately approved disposable node and is not part of this safe default recipe.
