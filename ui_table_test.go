@@ -278,3 +278,37 @@ func TestUIRouteTablePageKeysMatchVisibleRows(t *testing.T) {
 		uiTableLine(t, m.View().Content, "> Route00")
 	}
 }
+
+func TestUIRouteTableFramesCombiningEmojiAndFullwidthNames(t *testing.T) {
+	t.Setenv("NO_COLOR", "1")
+	names := []string{
+		strings.Repeat("e\u0301", 30),
+		strings.Repeat("👨\u200d👩\u200d👧", 12),
+		strings.Repeat("🇯🇵", 20),
+		strings.Repeat("ｆｕｌｌ", 12),
+		"שלום עולם مرحبا",
+	}
+	entries := make([]Entry, len(names))
+	for i, name := range names {
+		entries[i] = uiTestEntry(name)
+		entries[i].TargetHost = "ｆｕｌｌ-日本語.example.com"
+		entries[i].LocalPort, entries[i].TargetPort = 65000+i, 54000+i
+	}
+	for width := 50; width <= 130; width++ {
+		m := uiTestModel(entries...)
+		m.width, m.height = width, 24
+		m.states[entries[0].ID] = Result{State: "inactive"}
+		content := m.View().Content
+		uiAssertFits(t, content, width, m.height)
+		for _, line := range strings.Split(content, "\n") {
+			if strings.HasPrefix(line, "│") && ansi.StringWidth(line) != width {
+				t.Fatalf("width %d: framed row is %d columns: %q", width, ansi.StringWidth(line), line)
+			}
+		}
+		for _, want := range []string{"stopped; cleanup needed", ":65000", ":54000"} {
+			if !strings.Contains(content, want) {
+				t.Fatalf("width %d: selected row lost %q:\n%s", width, want, content)
+			}
+		}
+	}
+}
