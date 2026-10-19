@@ -6,7 +6,7 @@ A terminal UI for named SSH forwards and Tailscale Serve routes. Manage remote d
 
 ## Install
 
-Release binaries support Linux and macOS on amd64 and arm64. The installer needs a published release; this PR does not publish one. These commands use the installer on `main`.
+Release binaries support Linux and macOS on amd64 and arm64. These commands use the installer on `main`.
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/craftell/temo/main/install.sh | sh
@@ -38,6 +38,21 @@ go build -o temo .
 ```
 
 `temo --version` or `temo -v` prints the release version and exits without opening the TUI. An unstamped build uses module or VCS build information when available, otherwise `dev`.
+
+## Upgrade
+
+```sh
+temo update --check
+temo update
+```
+
+The check command reports the latest stable GitHub release without changing files. The update command selects the archive for this binary's operating system and architecture, verifies its SHA-256 checksum, validates the archive, and atomically replaces the installed executable. Neither command opens the TUI or changes definitions, ownership records, SSH forwards, or Tailscale routes. Existing running TUI processes continue using their loaded version; restart them to use the new one.
+
+Self-update supports directly installed official release binaries, including the curl installer. Go-installed and development builds can check for releases but must upgrade using their original method, such as `go install github.com/craftell/temo@latest`. The operating system resolves the running executable path. Recognized package-manager target paths and any unresolved final symlink are refused; use the original installation method. Launching through a symlink does not itself prove package-manager ownership. No sudo is attempted. A non-writable install directory is reported rather than bypassed.
+
+Downloads use official GitHub HTTPS endpoints. Checksums detect corrupted downloads; they are not an independent publisher signature. The updater uses a persistent lock file beside the executable to serialize updates. Do not remove it while an updater is running.
+
+Binaries older than 0.3.0 do not have this command. Run the installer once to obtain a version that includes it. The command becomes available after that release is published, not merely when this PR is merged.
 
 ## Run
 
@@ -102,3 +117,7 @@ CI runs tests, vet, and builds on Linux and macOS. Linux CI also drives the real
 [Design decisions](docs/design.md) explain the ownership boundary and current limits.
 
 Licensed under the [MIT License](LICENSE).
+
+## Preparing a release
+
+Every feature or fix PR includes its intended next version in `VERSION` and notes under `docs/releases/`. The release workflow rejects a tag that does not match `VERSION`. Source builds still report their module or development identity; changing `VERSION` alone does not make a build official. Publishing still requires an authorized matching tag on the intended tested commit.

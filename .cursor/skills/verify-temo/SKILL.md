@@ -1,6 +1,6 @@
 ---
 name: verify-temo
-description: Verify temo after UI, connection, release, or installer changes. Drive the real TUI, test loopback SSH and stub Serve, and check version flags and checksum-verified installation with local snapshot artifacts.
+description: Verify temo after UI, connection, release, or installer changes. Drive the real TUI, test loopback SSH and stub Serve, and check version flags and checksum-verified installation with local snapshot artifacts, and drive `temo update` against a loopback GitHub release imitation.
 ---
 
 # Verify temo
@@ -8,6 +8,8 @@ description: Verify temo after UI, connection, release, or installer changes. Dr
 Run the [feature map](features/README.md) against the built app. The bundled helper drives every mapped feature through terminal keys, not internal model calls.
 
 Last executed on Linux amd64 with Go 1.25.5, tmux 3.4, and OpenSSH 9.6p1, on `fix/keyboard-navigation-and-status` at base `8a17233` plus the start-failure wording fix. Both [verify-keyboard.py](verify-keyboard.py) and [verify.py](verify.py) printed PASS, and `GOFLAGS=-buildvcs=false` was set for the local build (see Launch). The extended run covered real loopback SSH forwarding, stale and failed-start ownership, the tab and refresh journeys below, and quit during refresh. Serve remains stubbed. Not run: native macOS terminal, real Tailscale Serve or Funnel, tailnet HTTPS, and a graphical browser. After later changes, rerun the helpers or inspect that commit's CI result and retained artifacts before claiming runtime coverage.
+
+Self-update was last executed on Linux amd64 with Go 1.25.5, Python 3.12, and OpenSSL, on `feat/self-update` at base `08e8206` plus the verification-skill edits (see [self-update](features/self-update.md)). [verify-update.py](verify-update.py) printed PASS for 53 scenarios against the real binary, including the real GoReleaser snapshot archive. The release helper printed PASS with the stamped channel check, and the keyboard smoke printed PASS. A scratch binary stamped 0.1.0 upgraded to the published v0.2.0 over real GitHub inside a scratch directory. Not run: macOS, an upgrade to the unpublished 0.3.0, and the tag-triggered release workflow.
 
 ## Safe keyboard smoke (Linux CI)
 
@@ -115,6 +117,7 @@ go build -o "$EVIDENCE/temo" .
 GOOS=darwin GOARCH=arm64 go build -o "$EVIDENCE/temo-darwin-arm64" .
 GOOS=darwin GOARCH=amd64 go build -o "$EVIDENCE/temo-darwin-amd64" .
 GOOS=linux GOARCH=amd64 go build -o "$EVIDENCE/temo-linux-amd64" .
+GOOS=linux GOARCH=arm64 go build -o "$EVIDENCE/temo-linux-arm64" .
 ```
 
 Require no output from gofmt. Apply an approved host-only GOFLAGS override consistently if VCS discovery requires one. Record failures and remaining gaps. Do not relabel a stub check as live Tailscale evidence.
@@ -148,6 +151,18 @@ If interrupted in a way that prevents Python cleanup, use the exact scratch path
 
 ## Helpers
 
-Run `python3 .cursor/skills/verify-temo/verify-keyboard.py --evidence "$EVIDENCE"` for the Linux-only safe keyboard smoke, `.cursor/skills/verify-temo/verify.py --evidence "$EVIDENCE"` for extended loopback terminal checks, and `.cursor/skills/verify-temo/verify-release.py --evidence "$RELEASE_EVIDENCE"` for snapshot and installer checks. Use a separate empty evidence directory for each. All helpers use Python's standard library plus their listed command-line tools. Review the helpers before execution when permissions or endpoint rules differ.
+Run `python3 .cursor/skills/verify-temo/verify-keyboard.py --evidence "$EVIDENCE"` for the Linux-only safe keyboard smoke, `.cursor/skills/verify-temo/verify.py --evidence "$EVIDENCE"` for extended loopback terminal checks, `.cursor/skills/verify-temo/verify-release.py --evidence "$RELEASE_EVIDENCE"` for snapshot and installer checks, and `.cursor/skills/verify-temo/verify-update.py --evidence "$UPDATE_EVIDENCE"` for the updater journeys. Use a separate empty evidence directory for each. All helpers use Python's standard library plus their listed command-line tools. Review the helpers before execution when permissions or endpoint rules differ.
 
 Use `/maintain-verification-skill` after behavior changes. Keep source coverage and runtime coverage separate. A real-tailnet check requires a separately approved disposable node and is not part of this safe default recipe.
+
+## Self-update checks
+
+Read [self-update](features/self-update.md) when touching update.go, update_cli.go, main.go dispatch, release provenance, VERSION, or release packaging. It has three layers, each with its own evidence.
+
+1. The Go fixture suite in `go test -race ./...` uses an in-memory transport and dummy executables. It never contacts GitHub.
+2. `python3 .cursor/skills/verify-temo/verify-update.py --evidence "$UPDATE_EVIDENCE"` runs the real binary through a loopback TLS proxy that imitates the GitHub API, redirect, and CDN hosts. It checks success, check-only, downgrade refusal, checksum and archive attacks, size and redirect bounds, offline and untrusted TLS, install-directory and package-path refusal, concurrent updaters, and a real PTY run. Pass `--release-archive` with the snapshot archive from the release recipe to cover the real GoReleaser layout.
+3. A scratch binary stamped below the latest release can check and upgrade against the public release inside a scratch directory.
+
+Use a separate empty evidence directory for each helper. The release recipe now also asserts the stamped `main.updateChannel` and version with `go version -m`, and that the archive holds exactly `temo`, `LICENSE`, and `README.md` as regular files.
+
+The updater is never exercised on the installed `temo`, a package-manager binary, or a real release that was created for the test. Record the exact tested commit and CI URL in the PR. Never create a release or tag as part of verification without separate authorization.
