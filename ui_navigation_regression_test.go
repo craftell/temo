@@ -230,3 +230,59 @@ func TestUIBusyMutationStillAllowsListNavigation(t *testing.T) {
 		t.Fatal("mutation blocked tabs")
 	}
 }
+
+func TestUIDelayedStartupWaitsForExplicitOperation(t *testing.T) {
+	entry := uiTestEntry("Alpha")
+	m := uiTestModel(entry)
+	initial := m.Init()
+	state := "stopped"
+	m.do = func(_ Entry, action string) Result {
+		if action == "start" {
+			state = "ready"
+		}
+		return Result{State: state}
+	}
+	m, start := uiStep(t, m, tea.KeyPressMsg{Code: 's'})
+	m = uiInput(t, m, initial())
+	if len(m.refresh.pending) != 0 {
+		t.Fatal("startup overlapped an explicit operation")
+	}
+	m, observe := uiStep(t, m, start())
+	if m.states[entry.ID].State != "ready" || observe == nil {
+		t.Fatal("startup did not resume after operation completed")
+	}
+	m = uiFinish(t, m, observe)
+	if m.states[entry.ID].State != "ready" {
+		t.Fatal("startup overwrote newer operation state")
+	}
+}
+
+func TestUIDelayedStartupWaitsForFormCancel(t *testing.T) {
+	m := uiTestModel(uiTestEntry("Alpha"))
+	m.do = func(Entry, string) Result { return stopped() }
+	initial := m.Init()
+	m = uiInput(t, m, tea.KeyPressMsg{Code: 'a'})
+	m = uiInput(t, m, initial())
+	if len(m.refresh.pending) != 0 {
+		t.Fatal("startup checked definitions during an open editor")
+	}
+	m, observe := uiStep(t, m, tea.KeyPressMsg{Code: tea.KeyEsc})
+	if observe == nil || m.editor != nil {
+		t.Fatal("startup did not resume when form was cancelled")
+	}
+	uiFinish(t, m, observe)
+}
+
+func TestUIQuitBeforeStartupCannotLaunchObservations(t *testing.T) {
+	m := uiTestModel(uiTestEntry("Alpha"))
+	initial := m.Init()
+	m, quit := uiStep(t, m, tea.KeyPressMsg{Code: 'q'})
+	if quit == nil {
+		t.Fatal("quit was not accepted")
+	}
+	m = uiInput(t, m, initial())
+	if m.refresh.total != 0 || len(m.refresh.pending) != 0 {
+		t.Fatal("delayed startup launched observations after quit")
+	}
+	uiInput(t, m, tea.KeyPressMsg{Code: 'r'})
+}

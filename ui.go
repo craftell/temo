@@ -22,6 +22,8 @@ type model struct {
 	configPath    string
 	configDetails bool
 	refresh       uiRefresh
+	startupWait   bool
+	quitting      bool
 	revisions     map[string]uint64
 	do            func(Entry, string) Result
 	observe       func(context.Context, Entry) Result
@@ -167,8 +169,15 @@ func (m *model) switchTab(kind string) {
 }
 
 func (m model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
+	if m.quitting {
+		return m, nil
+	}
 	switch msg := message.(type) {
 	case uiRefreshStart:
+		if m.busy != "" || m.editor != nil {
+			m.startupWait = true
+			return m, nil
+		}
 		cmd := m.startRefresh()
 		return m, cmd
 	case uiObserved:
@@ -250,6 +259,11 @@ func (m model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		m.states[msg.entry.ID] = Result{State: "unknown", Detail: "Settings saved. Press r to inspect status."}
 		m.notice = "Saved " + msg.entry.Name + "."
 	}
+	if m.startupWait && m.busy == "" && m.editor == nil {
+		m.startupWait = false
+		cmd := m.startRefresh()
+		return m, cmd
+	}
 	return m, nil
 }
 
@@ -318,6 +332,11 @@ func (m model) updateKey(key tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		case "esc":
 			m.editor = nil
 			m.notice = "Edit cancelled."
+			if m.startupWait {
+				m.startupWait = false
+				cmd := m.startRefresh()
+				return m, cmd
+			}
 		case "ctrl+s":
 			return m.saveEditor()
 		case "ctrl+d":
@@ -438,6 +457,7 @@ func (m model) quit() (tea.Model, tea.Cmd) {
 		m.notice = "Wait for the current operation before quitting."
 		return m, nil
 	}
+	m.quitting = true
 	if m.refresh.cancel != nil {
 		m.refresh.cancel()
 	}
