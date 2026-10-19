@@ -84,7 +84,9 @@ class ReleaseLab:
         for name in expected:
             assert hashlib.sha256((self.dist / name).read_bytes()).hexdigest() == self.sums[name]
             with tarfile.open(self.dist / name) as archive:
-                assert {"temo", "LICENSE", "README.md"}.issubset(archive.getnames())
+                assert sorted(archive.getnames()) == ["LICENSE", "README.md", "temo"], "archive layout differs from the updater contract"
+                assert all(member.isreg() for member in archive.getmembers()), "archive has a non-regular member"
+                assert archive.getmember("temo").mode & 0o111, "archive binary is not executable"
                 assert b"Copyright (c) 2026 kenfdev" in archive.extractfile("LICENSE").read()
         system = {"Linux": "linux", "Darwin": "darwin"}[platform.system()]
         arch = {"x86_64": "amd64", "amd64": "amd64", "aarch64": "arm64", "arm64": "arm64"}[platform.machine()]
@@ -171,6 +173,12 @@ class ReleaseLab:
         for flag in ("--version", "-v"):
             result = self.run([default / "temo", flag], "installed-" + flag.lstrip("-"), env=env)
             assert result.stdout.strip() == "temo " + self.version
+        stamp = self.run(["go", "version", "-m", default / "temo"], "installed-build-info").stdout
+        assert "-X main.version=" + self.version in stamp, "release binary lacks the tag-derived version"
+        assert "-X main.updateChannel=github-release" in stamp, "release binary lacks the official release channel"
+        dev_stamp = self.run(["go", "version", "-m", self.root / "temo-dev"], "dev-build-info").stdout
+        assert "main.updateChannel" not in dev_stamp, "source build inherited the release channel"
+        (self.out / "release-build-info.txt").write_text(stamp)
         custom = self.root / "custom bin"
         explicit = dict(env, TEMO_VERSION=self.version, TEMO_INSTALL_DIR=str(custom),
                         PATH=str(custom) + os.pathsep + env["PATH"])
@@ -251,7 +259,7 @@ def main():
         (lab.out / "result.txt").write_text("FAIL: " + repr(error) + "\n")
         raise
     else:
-        (lab.out / "result.txt").write_text("PASS snapshot matrix, checksums, version flags, installer successes/refusals, profile preservation, and HTTP cleanup. Nothing published.\n")
+        (lab.out / "result.txt").write_text("PASS snapshot matrix, checksums, version flags, stamped release channel, installer successes/refusals, profile preservation, and HTTP cleanup. Nothing published.\n")
 
 
 if __name__ == "__main__":
