@@ -20,11 +20,31 @@ jobs:
       - run: go mod tidy
       - name: Check formatting and module lockfiles
         run: |
+          gofmt -d *.go
           test -z "$(gofmt -l *.go)"
           git diff --exit-code -- go.mod go.sum
+      - name: Parse verification helpers without running them
+        run: python3 -m py_compile .cursor/skills/verify-temo/verify*.py
       - run: go test -race ./...
       - run: go vet ./...
       - run: go build -o temo .
+      - name: Real PTY keyboard smoke (no network backends)
+        if: runner.os == 'Linux'
+        run: |
+          evidence="$RUNNER_TEMP/temo-keyboard-evidence"
+          if ! python3 .cursor/skills/verify-temo/verify-keyboard.py --binary ./temo --evidence "$evidence"; then
+            cat "$evidence"/*FAILED*.txt "$evidence"/backend.jsonl 2>/dev/null || true
+            exit 1
+          fi
+          cat "$evidence/result.txt" "$evidence/actions.log" "$evidence/cancellation.json"
+          cat "$evidence"/*-list-ssh-bravo.txt "$evidence"/*-down-field.txt
+      - name: Save keyboard smoke evidence
+        if: always() && runner.os == 'Linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: keyboard-smoke-${{ matrix.os }}
+          path: ${{ runner.temp }}/temo-keyboard-evidence
+          if-no-files-found: warn
       - name: Save resolved dependencies
         uses: actions/upload-artifact@v4
         with:

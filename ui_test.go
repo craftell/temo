@@ -45,18 +45,28 @@ func uiFinish(t *testing.T, m model, cmd tea.Cmd) model {
 	if cmd == nil {
 		t.Fatal("expected an asynchronous command")
 	}
-	next, followup := uiStep(t, m, cmd())
-	if followup != nil {
-		t.Fatal("operation unexpectedly scheduled another command")
+	pending := []tea.Cmd{cmd}
+	for len(pending) > 0 {
+		current := pending[0]
+		pending = pending[1:]
+		message := current()
+		if batch, ok := message.(tea.BatchMsg); ok {
+			pending = append(pending, batch...)
+			continue
+		}
+		next, followup := uiStep(t, m, message)
+		m = next
+		if followup != nil {
+			pending = append(pending, followup)
+		}
 	}
-	return next
+	return m
 }
 
 func uiAddSSH(t *testing.T, m model, name string) model {
 	t.Helper()
 	m = uiInput(t, m, tea.KeyPressMsg{Code: 'a'})
 	m = uiInput(t, m, tea.PasteMsg{Content: name})
-	m = uiInput(t, m, tea.KeyPressMsg{Code: tea.KeyTab})
 	m = uiInput(t, m, tea.KeyPressMsg{Code: tea.KeyTab})
 	return uiInput(t, m, tea.PasteMsg{Content: "dev-box"})
 }
@@ -129,7 +139,7 @@ func TestUIActionShortcuts(t *testing.T) {
 	}
 }
 
-func TestUIRefreshChecksOnlySelectedRoute(t *testing.T) {
+func TestUIRefreshChecksAllRoutes(t *testing.T) {
 	alpha, beta := uiTestEntry("Alpha"), uiTestEntry("Beta")
 	beta.LocalPort = 8081
 	m := uiTestModel(alpha, beta)
@@ -147,12 +157,12 @@ func TestUIRefreshChecksOnlySelectedRoute(t *testing.T) {
 		t.Fatal("refresh ran synchronously")
 	}
 	m = uiFinish(t, m, cmd)
-	if len(checked) != 1 || checked[0] != beta.ID {
-		t.Fatalf("checked routes = %v, want only selected Beta", checked)
+	if len(checked) != 2 || checked[0] != alpha.ID || checked[1] != beta.ID {
+		t.Fatalf("checked routes = %v, want Alpha and Beta", checked)
 	}
 	content := m.View().Content
-	if !strings.Contains(content, "> [stopped] Beta") || !strings.Contains(content, "[unknown] Alpha") {
-		t.Fatal("selected refresh changed or omitted the wrong route state")
+	if !strings.Contains(content, "> [stopped] Beta") || !strings.Contains(content, "[stopped] Alpha") {
+		t.Fatal("refresh omitted a route state")
 	}
 }
 
@@ -220,7 +230,6 @@ func TestUIAddSavesUnicodeNameAndIgnoresUnusedPort(t *testing.T) {
 	m = uiInput(t, m, tea.KeyPressMsg{Code: tea.KeyLeft})
 	m = uiInput(t, m, tea.PasteMsg{Content: "語"})
 	m = uiInput(t, m, tea.KeyPressMsg{Code: tea.KeyTab})
-	m = uiInput(t, m, tea.KeyPressMsg{Code: tea.KeyTab})
 	m = uiInput(t, m, tea.PasteMsg{Content: "dev-box"})
 	m, save := uiStep(t, m, tea.KeyPressMsg{Code: 's', Mod: tea.ModCtrl})
 	if saved != nil {
@@ -243,11 +252,9 @@ func TestUIAddLocalServeDefaultsTo8443(t *testing.T) {
 	m := uiTestModel()
 	var saved *Config
 	m.persist = func(cfg Config) error { saved = &cfg; return nil }
+	m = uiInput(t, m, tea.KeyPressMsg{Code: '2'})
 	m = uiInput(t, m, tea.KeyPressMsg{Code: 'a'})
 	m = uiInput(t, m, tea.PasteMsg{Content: "Local app"})
-	m = uiInput(t, m, tea.KeyPressMsg{Code: tea.KeyTab})
-	m = uiInput(t, m, tea.KeyPressMsg{Code: 'u', Mod: tea.ModCtrl})
-	m = uiInput(t, m, tea.PasteMsg{Content: "serve"})
 	m, save := uiStep(t, m, tea.KeyPressMsg{Code: 's', Mod: tea.ModCtrl})
 	m = uiFinish(t, m, save)
 	if saved == nil || len(saved.Entries) != 1 {

@@ -8,7 +8,7 @@ Source entry points are `engine.go`'s `serve`, `portSnapshot`, `desiredSnapshot`
 
 ## How to get to it (user POV)
 
-Create a `serve` entry with target host `127.0.0.1` or `localhost`, a target port, and a dedicated HTTPS port. Blank SSH host selects this machine. An SSH alias selects remote execution. Use `s`, `r`, `o`, and `x` as for SSH entries.
+Select the Serve tab with 2 or Left/Right, then press a. Enter a name, target port, and dedicated HTTPS port; the localhost target is not an editable form field. Blank SSH host selects this machine. An SSH alias selects remote execution. Use s, o, and x on the selected entry. Startup and r inspect every saved entry across both tabs, without changing the Serve configuration or ownership files.
 
 ## Driving it with tmux
 
@@ -17,6 +17,8 @@ Run the helper from [Launch](../SKILL.md#launch). Both local and SSH Serve use i
 Require stopped, setup-ready, refresh, URL dispatch, and stop screens. Inspect `tailscale-calls.jsonl` and `serve.json` for the dedicated port and root handler. Local Serve must survive quitting and reopening the app. The remote journey uses port 9443 and must issue its fixed Tailscale commands through SSH.
 
 Change only the stub fixture to introduce drift, a different node, an occupied port, Funnel, a foreground session, unknown fields, or invalid JSON. Each attempt must show the matching error and issue no mutating stub command. A simulated failure after applying a route must leave pending ownership. A later stop must refuse mutation rather than adopt or roll back the route.
+
+Remove the stub route after a start: refresh must show `stopped; cleanup needed` with no mutating stub call and unchanged ownership. Stop must then release ownership without any mutating call.
 
 ## Gotchas
 

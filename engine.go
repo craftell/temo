@@ -63,15 +63,23 @@ type Engine struct {
 }
 
 func (g *Engine) Do(e Entry, action string) Result {
+	return g.do(context.Background(), e, action)
+}
+
+func (g *Engine) Observe(ctx context.Context, e Entry) Result {
+	return g.do(ctx, e, "status")
+}
+
+func (g *Engine) do(parent context.Context, e Entry, action string) Result {
 	if err := e.Validate(); err != nil {
 		return failed(err)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
+	ctx, cancel := context.WithTimeout(parent, 25*time.Second)
 	defer cancel()
 	var result Result
 	var err error
 	if action == "open" {
-		result = g.Do(e, "status")
+		result = g.do(ctx, e, "status")
 		if result.State != "ready" || result.URL == "" {
 			return Result{State: result.State, Detail: "URL is available only after setup is ready. " + result.Detail}
 		}
@@ -106,6 +114,9 @@ func ready(url string) Result {
 	return Result{State: "ready", URL: url, Detail: "Backend setup ready. Application reachability is not verified."}
 }
 func stopped() Result { return Result{State: "stopped", Detail: "No managed backend is active."} }
+func inactive() Result {
+	return Result{State: "inactive", Detail: "Backend is absent. Ownership retained; use Stop to release it before editing."}
+}
 
 func (g *Engine) journalPath(e Entry) string {
 	return filepath.Join(g.Store.Dir, "owner-"+e.ID+".json")
@@ -185,6 +196,12 @@ func (g *Engine) ssh(ctx context.Context, e Entry, action string) (Result, error
 		} else if !errors.Is(err, os.ErrNotExist) {
 			return Result{}, err
 		}
+		if action != "stop" && o.Phase != "active" {
+			return Result{}, errors.New("SSH start outcome is uncertain; use explicit stop before retrying")
+		}
+		if action == "status" {
+			return inactive(), nil
+		}
 		if err := g.forget(e); err != nil {
 			return Result{}, err
 		}
@@ -215,7 +232,7 @@ func (g *Engine) ssh(ctx context.Context, e Entry, action string) (Result, error
 	forward := fmt.Sprintf("127.0.0.1:%d:%s", e.LocalPort, target)
 	args = append(sshOptions(), "-o", "ClearAllForwardings=no", "-M", "-S", socket, "-o", "ControlMaster=yes", "-o", "ControlPersist=yes", "-o", "ExitOnForwardFailure=yes", "-f", "-N", "-L", forward, "--", e.SSHHost)
 	if _, err := g.Runner.Run(ctx, "ssh", args...); err != nil {
-		return Result{}, fmt.Errorf("start outcome may be uncertain; refresh before retrying: %w", err)
+		return Result{}, fmt.Errorf("start outcome may be uncertain; use Stop (x) to release ownership before retrying: %w", err)
 	}
 	if err := control("check"); err != nil {
 		return Result{}, fmt.Errorf("SSH setup returned but control check failed: %w", err)
@@ -366,18 +383,21 @@ func (g *Engine) serve(ctx context.Context, e Entry, action string) (Result, err
 	if !owned && used {
 		return Result{}, errors.New("this HTTPS port is already configured outside temo; choose an unused port")
 	}
+	url := "https://" + net.JoinHostPort(dns, strconv.Itoa(e.ServePort)) + "/"
+	if action == "status" {
+		if owned && used {
+			return ready(url), nil
+		}
+		if owned {
+			return inactive(), nil
+		}
+		return stopped(), nil
+	}
 	if !used && owned {
 		if err := g.forget(e); err != nil {
 			return Result{}, err
 		}
 		owned = false
-	}
-	url := "https://" + net.JoinHostPort(dns, strconv.Itoa(e.ServePort)) + "/"
-	if action == "status" {
-		if owned {
-			return ready(url), nil
-		}
-		return stopped(), nil
 	}
 	if action == "stop" && !owned {
 		return stopped(), nil
