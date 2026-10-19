@@ -20,6 +20,7 @@ jobs:
       - run: go mod tidy
       - name: Check formatting and module lockfiles
         run: |
+          gofmt -d *.go
           test -z "$(gofmt -l *.go)"
           git diff --exit-code -- go.mod go.sum
       - run: go test -race ./...

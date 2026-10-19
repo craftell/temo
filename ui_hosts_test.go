@@ -79,6 +79,7 @@ func TestUIHostPickerCancelPreservesManualInput(t *testing.T) {
 func TestUIEmptyHostPickerKeepsLocalServeAvailable(t *testing.T) {
 	sshConfigHome(t, nil)
 	m := uiTestModel()
+	m = uiInput(t, m, tea.KeyPressMsg{Code: '2'})
 	m = uiInput(t, m, tea.KeyPressMsg{Code: 'a'})
 	m = uiInput(t, m, tea.PasteMsg{Content: "Local"})
 	m = uiInput(t, m, tea.KeyPressMsg{Code: 'p', Mod: tea.ModCtrl})
@@ -88,9 +89,6 @@ func TestUIEmptyHostPickerKeepsLocalServeAvailable(t *testing.T) {
 		t.Fatal("missing config did not leave an empty, cancellable list")
 	}
 	m = uiInput(t, m, tea.KeyPressMsg{Code: tea.KeyEsc})
-	m = uiInput(t, m, tea.KeyPressMsg{Code: tea.KeyTab})
-	m = uiInput(t, m, tea.KeyPressMsg{Code: 'u', Mod: tea.ModCtrl})
-	m = uiInput(t, m, tea.PasteMsg{Content: "serve"})
 	var saved Config
 	m.persist = func(cfg Config) error { saved = cfg; return nil }
 	m, save := uiStep(t, m, tea.KeyPressMsg{Code: 's', Mod: tea.ModCtrl})
