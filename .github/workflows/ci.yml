@@ -18,15 +18,10 @@ jobs:
           go-version: '1.25.x'
           cache: false
       - run: go mod tidy
-      - name: Record normalized source and module checksums
+      - name: Check formatting and module lockfiles
         run: |
-          gofmt -w *.go
-          python3 - <<'PY'
-          import glob, json
-          paths = sorted(glob.glob("*.go") + ["go.mod", "go.sum"])
-          for p in paths:
-              print("TEMO_NORMALIZED_FILE=" + json.dumps({"path": p, "content": open(p).read()}))
-          PY
+          test -z "$(gofmt -l *.go)"
+          git diff --exit-code -- go.mod go.sum
       - run: go test -race ./...
       - run: go vet ./...
       - run: go build -o temo .
