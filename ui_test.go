@@ -161,7 +161,7 @@ func TestUIRefreshChecksAllRoutes(t *testing.T) {
 		t.Fatalf("checked routes = %v, want Alpha and Beta", checked)
 	}
 	content := m.View().Content
-	if !strings.Contains(content, "> [stopped] Beta") || !strings.Contains(content, "[stopped] Alpha") {
+	if !uiHasTableRow(content, "Beta", "stopped", true) || !uiHasTableRow(content, "Alpha", "stopped", false) {
 		t.Fatal("refresh omitted a route state")
 	}
 }
@@ -343,6 +343,7 @@ func TestUIPasteOutsideInputsDoesNotRunShortcuts(t *testing.T) {
 }
 
 func TestUIViewEscapesTerminalControlsAndFits(t *testing.T) {
+	t.Setenv("NO_COLOR", "1")
 	m := uiTestModel(uiTestEntry("\x1b]52;c;data\a日本語"))
 	m.do = func(Entry, string) Result {
 		return Result{State: "ready", URL: "http://localhost/\x1b", Detail: "warning\a\u202e"}
@@ -376,13 +377,14 @@ func TestUIViewportKeepsSelectedRouteVisible(t *testing.T) {
 		m = uiInput(t, m, tea.KeyPressMsg{Code: 'j'})
 	}
 	content := m.View().Content
-	if !strings.Contains(content, "> [unknown] Route19") || strings.Contains(content, "Route00") {
+	if !uiHasTableRow(content, "Route19", "unknown", true) || strings.Contains(content, "Route00") {
 		t.Fatal("viewport did not follow the selected route")
 	}
 	uiAssertFits(t, content, 60, 14)
 }
 
 func TestUIDetailsShowsFullErrorsAndScrolls(t *testing.T) {
+	t.Setenv("NO_COLOR", "1")
 	m := uiTestModel(uiTestEntry("Alpha"))
 	m.do = func(Entry, string) Result {
 		return Result{State: "error", Detail: "\x1b[31m" + strings.Repeat("diagnostic ", 600) + "FINAL_DETAIL_MARKER"}
@@ -412,6 +414,7 @@ func TestUIDetailsShowsFullErrorsAndScrolls(t *testing.T) {
 }
 
 func TestUIFormErrorDetailsPreserveUnsavedInput(t *testing.T) {
+	t.Setenv("NO_COLOR", "1")
 	m := uiTestModel(uiTestEntry("Original"))
 	m.do = func(Entry, string) Result { return Result{State: "stopped"} }
 	m.persist = func(cfg Config) error {
@@ -494,7 +497,7 @@ func TestUIStaleCompletionCannotUnlockOrOverwriteNewOperation(t *testing.T) {
 	m = uiInput(t, m, tea.KeyPressMsg{Code: 'q'})
 	m = uiFinish(t, m, second)
 	m = uiInput(t, m, oldResult)
-	if !strings.Contains(m.View().Content, "setup ready") || strings.Contains(m.View().Content, "[stopped]") {
+	if !uiHasTableRow(m.View().Content, "Alpha", "setup ready", true) || uiHasTableRow(m.View().Content, "Alpha", "stopped", false) {
 		t.Fatal("a stale result replaced the completed operation's state")
 	}
 }
@@ -510,4 +513,23 @@ func uiAssertFits(t *testing.T, content string, width, height int) {
 			t.Fatalf("line exceeds %d columns: %q", width, line)
 		}
 	}
+}
+
+// uiHasTableRow checks the current row, so a selected-route detail or notice
+// cannot satisfy an assertion about the table's selection or status.
+func uiHasTableRow(content, name, state string, selected bool) bool {
+	for _, line := range strings.Split(ansi.Strip(content), "\n") {
+		if !strings.HasPrefix(strings.TrimSpace(line), "│") {
+			continue
+		}
+		row := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(line), "│"))
+		if selected && !strings.HasPrefix(row, "> ") {
+			continue
+		}
+		row = strings.TrimSpace(strings.TrimPrefix(row, ">"))
+		if strings.HasPrefix(row, name+" ") && strings.Contains(strings.TrimPrefix(row, name+" "), state) {
+			return true
+		}
+	}
+	return false
 }

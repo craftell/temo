@@ -151,3 +151,7 @@ If interrupted in a way that prevents Python cleanup, use the exact scratch path
 Run `python3 .cursor/skills/verify-temo/verify-keyboard.py --evidence "$EVIDENCE"` for the Linux-only safe keyboard smoke, `.cursor/skills/verify-temo/verify.py --evidence "$EVIDENCE"` for extended loopback terminal checks, and `.cursor/skills/verify-temo/verify-release.py --evidence "$RELEASE_EVIDENCE"` for snapshot and installer checks. Use a separate empty evidence directory for each. All helpers use Python's standard library plus their listed command-line tools. Review the helpers before execution when permissions or endpoint rules differ.
 
 Use `/maintain-verification-skill` after behavior changes. Keep source coverage and runtime coverage separate. A real-tailnet check requires a separately approved disposable node and is not part of this safe default recipe.
+
+## Table presentation changes
+
+After route-table or port-default changes, use the expanded [terminal navigation recipe](features/terminal-navigation.md#route-table-and-port-defaults). Review current-screen text captures and terminal.raw from the safe PTY smoke. Read the table renderer tests alongside the captures. Preserve the distinction between generated terminal evidence, a human visual review, and backend integration checks. The table feature adds no automatic route mutations.

@@ -7,6 +7,7 @@ import json
 import os
 from pathlib import Path
 import pwd
+import re
 import shlex
 import shutil
 import socket
@@ -56,6 +57,18 @@ else:
     print("unexpected tailscale invocation", file=sys.stderr)
     sys.exit(2)
 '''
+
+
+def has_table_state(screen, state, selected=False):
+    lines = screen.splitlines()
+    header = next((line for line in lines if "NAME" in line and "STATUS" in line), None)
+    if header is None:
+        return False
+    start = header.index("STATUS")
+    end = header.index("SSH HOST") if "SSH HOST" in header else len(header.rstrip()) - 2
+    return any(line.lstrip().startswith("│") and
+               (not selected or line.lstrip().startswith("│ > ")) and
+               line[start:end].strip() == state for line in lines)
 
 
 class QuietHTTP(http.server.BaseHTTPRequestHandler):
@@ -124,7 +137,10 @@ class Lab:
         deadline = time.monotonic() + 30
         while time.monotonic() < deadline:
             screen = self.tmux("capture-pane", "-p", "-t", "app").stdout
-            if text in screen and "Working:" not in screen and "Refreshing " not in screen:
+            # State waits refer to the selected table cell, not old preview text.
+            present = (has_table_state(screen, text.removeprefix("State: "), selected=True)
+                       if text.startswith("State: ") else text in screen)
+            if present and "Working:" not in screen and "Refreshing " not in screen:
                 self.capture(label)
                 return screen
             time.sleep(0.1)
@@ -312,7 +328,7 @@ Host inherited
             assert s.connect_ex(("127.0.0.1", entry["local_port"])) != 0, "forward survived master exit"
         before, mtime = owner.read_bytes(), owner.stat().st_mtime_ns
         screen = self.action("r", "stopped; cleanup needed", "stale-ssh-observed")
-        assert "[stopped; cleanup needed] local-ssh" in screen
+        assert re.search(r"^\s*│\s*>?\s*local-ssh\s+stopped; cleanup needed(?:\s|│)", screen, re.M)
         assert owner.read_bytes() == before and owner.stat().st_mtime_ns == mtime, "refresh changed the ownership journal"
         self.action("e", "Editing requires a stopped route", "stale-ssh-edit-refused")
         assert owner.read_bytes() == before
@@ -350,7 +366,7 @@ Host inherited
         self.fixture({})
         before, mutations = owner.read_bytes(), self.mutation_count()
         screen = self.action("r", "stopped; cleanup needed", "stale-serve-observed")
-        assert "[stopped; cleanup needed] local-serve" in screen
+        assert re.search(r"^\s*│\s*>?\s*local-serve\s+stopped; cleanup needed(?:\s|│)", screen, re.M)
         assert owner.read_bytes() == before and self.mutation_count() == mutations
         self.action("e", "Editing requires a stopped route", "stale-serve-edit-refused")
         self.action("x", "stop local-serve: No managed backend is active", "stale-serve-released")
@@ -402,11 +418,11 @@ Host inherited
         calls_before = len((self.root / "tailscale-calls.jsonl").read_text().splitlines())
         self.key("r", "r", "r")
         progress = self.capture("refresh-in-flight")
-        assert "Refreshing " in progress and "[checking]" in progress and "[queued]" in progress
+        assert "Refreshing " in progress and has_table_state(progress, "checking") and has_table_state(progress, "queued")
         self.key("Down", "Down", "Up")
         moved = self.capture("navigation-during-refresh")
         assert "Refreshing " in moved
-        assert any(line.startswith("> [") and "seed-1" in line for line in moved.splitlines())
+        assert re.search(r"^\s*│ > seed-1\s+", moved, re.M)
         self.key("p")
         assert str(cfgpath) in self.capture("config-path-during-refresh")
         self.key("Escape")

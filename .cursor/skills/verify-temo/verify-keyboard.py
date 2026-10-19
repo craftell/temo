@@ -6,6 +6,7 @@ import contextlib
 import errno
 import fcntl
 import hashlib
+import html
 import json
 import os
 from pathlib import Path
@@ -87,6 +88,13 @@ if operation == "ssh-check":
 '''
 
 
+class Cell(str):
+    def __new__(cls, text, style):
+        cell = super().__new__(cls, text)
+        cell.style = style
+        return cell
+
+
 class Screen:
     """Small VT screen model: retain current cells, never grep old output."""
     def __init__(self, rows=32, cols=120):
@@ -97,6 +105,8 @@ class Screen:
         self.pending = ""
         self.decoder = codecs.getincrementaldecoder("utf-8")("replace")
         self.replies = []
+        self.style = ("#d8dee9", "#111827", False)
+        self.color_events = 0
 
     def newline(self):
         self.row += 1
@@ -165,10 +175,13 @@ class Screen:
                 if self.col >= self.cols:
                     self.col = 0
                     self.newline()
-                self.grid[self.row][self.col] = char
+                self.grid[self.row][self.col] = Cell(char, self.style)
                 self.col += 1
 
     def csi(self, raw, intermediate, final):
+        if final == "m":
+            self.sgr(raw)
+            return
         private = bool(raw) and raw[:1] in "?=>"
         values = [int(x) if x.isdigit() else 0 for x in raw.lstrip("?=>").split(";")]
         n = values[0] or 1
@@ -223,7 +236,7 @@ class Screen:
                 if self.col >= self.cols:
                     self.col = 0
                     self.newline()
-                self.grid[self.row][self.col] = char
+                self.grid[self.row][self.col] = Cell(str(char), self.style)
                 self.col += 1
         elif final == "s":
             self.saved = (r, c)
@@ -245,12 +258,92 @@ class Screen:
         elif final not in "mhlqntu":
             raise AssertionError("unsupported terminal CSI: " + repr((raw, intermediate, final)))
 
+    def sgr(self, raw):
+        palette = ("#000000", "#cc5555", "#55aa55", "#c4a000",
+                   "#5555cc", "#aa55aa", "#55aaaa", "#cccccc",
+                   "#777777", "#ff7777", "#77dd77", "#eeee77",
+                   "#7777ff", "#ff77ff", "#77eeee", "#ffffff")
+        raw = raw.replace("38:2::", "38;2;").replace("48:2::", "48;2;")
+        values = [int(value) if value else 0 for value in raw.replace(":", ";").split(";")]
+        fg, bg, bold = self.style
+        index = 0
+        while index < len(values):
+            value = values[index]
+            index += 1
+            if value == 0:
+                fg, bg, bold = "#d8dee9", "#111827", False
+            elif value == 1:
+                bold = True
+            elif value == 22:
+                bold = False
+            elif value == 39:
+                fg = "#d8dee9"
+            elif value == 49:
+                bg = "#111827"
+            elif 30 <= value <= 37 or 90 <= value <= 97:
+                fg = palette[value - 30 if value < 90 else value - 90 + 8]
+                self.color_events += 1
+            elif 40 <= value <= 47 or 100 <= value <= 107:
+                bg = palette[value - 40 if value < 100 else value - 100 + 8]
+                self.color_events += 1
+            elif value in (38, 48) and index < len(values):
+                mode = values[index]
+                index += 1
+                if mode == 5 and index < len(values):
+                    number = values[index]
+                    index += 1
+                    if number < 16:
+                        color = palette[number]
+                    elif number < 232:
+                        number -= 16
+                        levels = (0, 95, 135, 175, 215, 255)
+                        color = "#%02x%02x%02x" % (levels[number // 36],
+                            levels[(number // 6) % 6], levels[number % 6])
+                    else:
+                        level = 8 + (number - 232) * 10
+                        color = "#%02x%02x%02x" % (level, level, level)
+                elif mode == 2 and index + 2 < len(values):
+                    color = "#%02x%02x%02x" % tuple(values[index:index + 3])
+                    index += 3
+                else:
+                    raise AssertionError("unsupported terminal color: " + repr(raw))
+                if value == 38:
+                    fg = color
+                else:
+                    bg = color
+                self.color_events += 1
+        self.style = fg, bg, bold
+
+    def resize(self, rows, cols):
+        self.grid = [(row[:cols] + [" "] * cols)[:cols] for row in self.grid[:rows]]
+        self.grid += [[" "] * cols for _ in range(rows - len(self.grid))]
+        self.rows, self.cols = rows, cols
+        self.row, self.col = min(self.row, rows - 1), min(self.col, cols - 1)
+
+    def svg(self):
+        # Render the observed VT cells, including SGR colors, without a browser
+        # or image package. terminal.raw remains the unmodified source evidence.
+        width, height = self.cols * 9 + 24, self.rows * 18 + 24
+        parts = [f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}">',
+                 '<title>temo PTY current-screen capture</title>',
+                 f'<rect width="{width}" height="{height}" fill="#111827"/>',
+                 '<g font-family="monospace" font-size="15" xml:space="preserve">']
+        for y, row in enumerate(self.grid):
+            for x, cell in enumerate(row):
+                fg, bg, bold = getattr(cell, "style", ("#d8dee9", "#111827", False))
+                if bg != "#111827":
+                    parts.append(f'<rect x="{12 + x * 9}" y="{8 + y * 18}" width="9" height="18" fill="{bg}"/>')
+                if cell != " ":
+                    weight = ' font-weight="bold"' if bold else ""
+                    parts.append(f'<text x="{12 + x * 9}" y="{22 + y * 18}" fill="{fg}"{weight}>{html.escape(cell)}</text>')
+        return "\n".join(parts + ["</g></svg>"])
+
     def text(self):
         return "\n".join("".join(row).rstrip() for row in self.grid)
 
 
 class Terminal:
-    def __init__(self, binary, root, out):
+    def __init__(self, binary, root, out, no_color=True):
         self.out, self.index = out, 0
         self.screen = Screen()
         self.raw = (out / "terminal.raw").open("wb")
@@ -258,8 +351,14 @@ class Terminal:
         self.master, slave = pty.openpty()
         fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 32, 120, 0, 0))
         env = dict(os.environ, HOME=str(root / "home"), PATH=str(root / "bin"),
-                   TERM="xterm-256color", NO_COLOR="1", TEMO_KEYBOARD_ROOT=str(root),
+                   TERM="xterm-256color", TEMO_KEYBOARD_ROOT=str(root),
                    TEMO_KEYBOARD_LOG=str(out / "backend.jsonl"))
+        if no_color:
+            env["NO_COLOR"] = "1"
+        else:
+            env.pop("NO_COLOR", None)
+        env.pop("CLICOLOR", None)
+        env.pop("CLICOLOR_FORCE", None)
         def child_setup():
             os.setsid()
             fcntl.ioctl(0, termios.TIOCSCTTY, 0)
@@ -296,6 +395,7 @@ class Terminal:
         self.index += 1
         text = self.screen.text()
         (self.out / f"{self.index:03}-{label}.txt").write_text(text + "\n")
+        (self.out / f"{self.index:03}-{label}.svg").write_text(self.screen.svg() + "\n")
         return text
 
     def send(self, data):
@@ -323,6 +423,13 @@ class Terminal:
                 break
         self.capture("FAILED-" + label)
         raise AssertionError("terminal did not reach " + label)
+
+    def resize(self, rows, cols):
+        self.actions.write(f"resize {cols}x{rows}\n")
+        self.actions.flush()
+        self.screen.resize(rows, cols)
+        fcntl.ioctl(self.master, termios.TIOCSWINSZ, struct.pack("HHHH", rows, cols, 0, 0))
+        os.kill(self.proc.pid, signal.SIGWINCH)
 
     def quit(self):
         self.send(b"q")
@@ -385,7 +492,8 @@ def main():
                                cwd=Path(__file__).resolve().parents[3], stdout=log,
                                stderr=subprocess.STDOUT, check=True)
         (out / "environment.json").write_text(json.dumps({
-            "binary": str(binary), "scratch": str(root), "terminal": "120x32",
+            "binary": str(binary), "scratch": str(root), "terminals": ["120x32", "50x14", "50x20", "40x10"],
+            "color_modes": ["NO_COLOR=1", "xterm-256color"],
             "backends": "read-only denying stubs; no network, credentials or SSH server"}, indent=2))
         for name in ("ssh", "tailscale", "open", "xdg-open"):
             path = root / "bin" / name
@@ -413,9 +521,42 @@ def main():
         (out / "before.json").write_text(json.dumps(before, indent=2))
         ui = Terminal(binary, root, out)
         def row(name, selected=False, stopped=False):
-            marker = ">" if selected else "[ >]"
-            state = "stopped[^]]*" if stopped else "[^]]+"
-            return lambda s: bool(re.search(rf"^{marker}\s+\[{state}\]\s+{name}\b", s, re.M))
+            marker = r">\s+" if selected else r"(?:>\s+)?"
+            state = r"stopped(?:; cleanup needed)?" if stopped else r"[^│\n]+"
+            return lambda s: bool(re.search(rf"^\s*│\s*{marker}{re.escape(name)}\s+{state}(?:\s|│|$)", s, re.M))
+        def table(text, kind, narrow=False, selected_only=False):
+            labels = ["NAME", "STATUS", "SSH HOST", "LOCAL" if kind == "ssh" else "HTTPS", "TARGET"]
+            lines = text.splitlines()
+            heading = next(line for line in lines if "NAME" in line and "STATUS" in line)
+            endpoint_heading = next(line for line in lines if "SSH HOST" in line and labels[3] in line and "TARGET" in line)
+            assert narrow or heading == endpoint_heading, "wide table headers are not on one row"
+            fixtures = entries[:2] if kind == "ssh" else entries[2:]
+            if selected_only:
+                fixtures = [entry for entry in fixtures if row(entry["name"], selected=True)(text)]
+                assert len(fixtures) == 1, "minimum-size table lost its selected route"
+            for entry in fixtures:
+                name = entry["name"]
+                index = next(index for index, line in enumerate(lines) if row(name)(line))
+                line = lines[index]
+                assert line[heading.index("NAME"):heading.index("STATUS")].strip() == name
+                status_end = len(line) - 1 if narrow else heading.index("SSH HOST")
+                state = line[heading.index("STATUS"):status_end].strip()
+                assert state in ("unknown", "queued", "checking", "stopped", "stopped; cleanup needed"), state
+                endpoints = lines[index + 1] if narrow else line
+                host_at, port_at, target_at = (endpoint_heading.index(label) for label in labels[2:])
+                host = endpoints[host_at:port_at].strip()
+                expected_host = entry["ssh_host"] or "local"
+                assert host == expected_host or (narrow and host.endswith("…") and
+                    expected_host.startswith(host[:-1])), (name, host)
+                port = entry["local_port" if kind == "ssh" else "serve_port"]
+                assert endpoints[port_at:target_at].strip() == f":{port}", endpoints
+                assert endpoints[target_at:].strip(" │") == "127.0.0.1:3000", endpoints
+        def field_value(text, label):
+            match = re.search(r"^[ >]\s+" + re.escape(label) + r"\s+(.*)$", text, re.M)
+            assert match, ("missing form field", label)
+            return match.group(1).replace("│", "").strip()
+        def ports(target, local):
+            return lambda s: field_value(s, "Target port") == target and field_value(s, "Local port") == local
         def focus(label):
             return lambda s: bool(re.search(r"^>\s+" + re.escape(label) + r"(?:\s|$)", s, re.M))
         def move(data, predicate, label):
@@ -423,6 +564,7 @@ def main():
             return ui.expect(predicate, label)
         first = ui.expect(lambda s: "[1 SSH]" in s and "[2 Serve]" in s and row("ssh-alpha", True)(s), "launch")
         assert not row("serve-charlie")(first)
+        table(first, "ssh")
         for data, name in ((b"\x1b[B", "ssh-bravo"), (b"k", "ssh-alpha"),
                            (b"j", "ssh-bravo"), (b"\x1b[A", "ssh-alpha")):
             move(data, row(name, True), "list-" + name)
@@ -430,6 +572,7 @@ def main():
                            (b"\x1b[C", "serve-charlie"), (b"1", "ssh-alpha")):
             screen = move(data, row(name, True), "tab-" + name)
             assert not row("ssh-alpha" if name.startswith("serve") else "serve-charlie")(screen)
+            table(screen, "serve" if name.startswith("serve") else "ssh")
         for tab, labels in ((b"1", ["Name", "SSH host", "Target host", "Target port", "Local port"]),
                             (b"2", ["Name", "SSH host", "Target port", "HTTPS port"])):
             ui.send(tab)
@@ -444,6 +587,52 @@ def main():
             move(b"\r", focus(labels[2]), "enter-field")
             move(b"\x1b[A", focus(labels[1]), "up-field")
             move(b"\x1b", lambda s: "Edit cancelled" in s, "cancel-form")
+        # Add-form defaults are exercised without saving or contacting a backend.
+        ui.send(b"1")
+        screen = move(b"a", focus("Name"), "linked-ports-default")
+        assert ports("3000", "3000")(screen)
+        assert "Local port follows target until edited." in screen
+        move(b"\t\t\t", focus("Target port"), "linked-target-field")
+        ui.send(b"\x15")
+        move(b"4100", ports("4100", "4100"), "linked-ports-typed")
+        ui.send(b"\x15")
+        move(b"\x1b[200~4200\x1b[201~", ports("4200", "4200"), "linked-ports-pasted")
+        move(b"\t", focus("Local port"), "linked-local-navigation")
+        ui.send(b"\x1b[H")
+        ui.send(b"\x1b[F")
+        move(b"\x1b[Z", focus("Target port"), "linked-target-return")
+        ui.send(b"\x15")
+        move(b"4500", ports("4500", "4500"), "linked-after-cursor-moves")
+        move(b"\t", focus("Local port"), "override-local-field")
+        ui.send(b"\x15")
+        move(b"\x1b[200~9100\x1b[201~", ports("4500", "9100"), "explicit-local-port")
+        move(b"\x1b[Z", focus("Target port"), "override-target-field")
+        ui.send(b"\x15")
+        screen = move(b"4600", ports("4600", "9100"), "explicit-local-preserved")
+        assert "Local port is set independently." in screen
+        move(b"\x1b", lambda s: "Edit cancelled" in s, "cancel-linked-form")
+        screen = move(b"a", focus("Name"), "linked-defaults-reopened")
+        assert ports("3000", "3000")(screen), "a cancelled override leaked into a new form"
+        move(b"\x1b", lambda s: "Edit cancelled" in s, "cancel-reopened-form")
+        assert snapshot(cfg.parent) == before, "cancelled port edits changed saved files"
+        # Resize through stacked columns and the explicit too-small fallback.
+        ui.resize(14, 50)
+        screen = ui.expect(lambda s: row("ssh-alpha", True)(s) and "TARGET" in s, "minimum-ssh-table")
+        table(screen, "ssh", narrow=True, selected_only=True)
+        assert not row("ssh-bravo")(screen), "minimum viewport unexpectedly contains two routes"
+        screen = move(b"\x1b[B", row("ssh-bravo", True), "minimum-next-route")
+        table(screen, "ssh", narrow=True, selected_only=True)
+        move(b"\x1b[A", row("ssh-alpha", True), "minimum-previous-route")
+        ui.resize(20, 50)
+        screen = ui.expect(lambda s: row("ssh-alpha", True)(s) and row("ssh-bravo")(s), "narrow-ssh-table")
+        table(screen, "ssh", narrow=True)
+        screen = move(b"2", row("serve-charlie", True), "narrow-serve-table")
+        table(screen, "serve", narrow=True)
+        ui.resize(10, 40)
+        ui.expect(lambda s: "Resize to at least" in s, "too-small-resize")
+        ui.resize(32, 120)
+        screen = ui.expect(lambda s: row("serve-charlie", True)(s) and "TARGET" in s, "wide-table-restored")
+        table(screen, "serve")
         move(b"p", lambda s: str(cfg) in "".join(s.split()), "config-path")
         ui.send(b"\x1b")
         move(b"?", lambda s: bool(re.search(r"\bp\b.*[Cc]onfig", s)), "help-config-hint")
@@ -487,6 +676,38 @@ def main():
             "elapsed_seconds": time.monotonic() - started, "children_running": False}, indent=2))
         assert snapshot(cfg.parent) == before, "cancellation altered config or ownership"
         assert all(item["allowed"] for item in calls(out)), "a non-read-only command was attempted"
+        assert ui.screen.color_events == 0, "NO_COLOR emitted a colored SGR sequence"
+        ui.close()
+        ui = None
+        # Reopen the same immutable fixtures with color enabled. This is another
+        # read-only status sweep through the same exact denying stubs.
+        color_out = out / "color"
+        color_out.mkdir()
+        (root / "release-status").touch()
+        ui = Terminal(binary, root, color_out, no_color=False)
+        screen = ui.expect(lambda s: row("ssh-alpha", True, stopped=True)(s) and "Refreshing " not in s,
+                           "colored-ssh-table")
+        table(screen, "ssh")
+        assert ui.screen.color_events > 0, "color-capable terminal received no color"
+        lines = screen.splitlines()
+        selected_y = next(index for index, line in enumerate(lines) if row("ssh-alpha", True)(line))
+        other_y = next(index for index, line in enumerate(lines) if row("ssh-bravo")(line))
+        selected_name = ui.screen.grid[selected_y][lines[selected_y].index("ssh-alpha")]
+        other_name = ui.screen.grid[other_y][lines[other_y].index("ssh-bravo")]
+        status_cell = ui.screen.grid[selected_y][lines[selected_y].index("stopped")]
+        assert getattr(selected_name, "style", (None, None))[1] != getattr(other_name, "style", (None, None))[1], "selection has no distinct background"
+        assert getattr(status_cell, "style", (None,))[0] != getattr(selected_name, "style", (None,))[0], "cleanup status has no distinct foreground"
+        screen = move(b"2", row("serve-charlie", True, stopped=True), "colored-serve-table")
+        table(screen, "serve")
+        ui.quit()
+        color_calls = [item for item in calls(color_out) if item["phase"] == "call"]
+        assert len(color_calls) == 6 and all(item["allowed"] for item in color_calls), color_calls
+        assert snapshot(cfg.parent) == before, "color-mode launch altered config or ownership"
+        (out / "color-checks.json").write_text(json.dumps({
+            "no_color_colored_sgr_count": 0,
+            "enabled_colored_sgr_count": ui.screen.color_events,
+            "captures": "numbered .txt and .svg current screens plus terminal.raw in each mode"
+        }, indent=2))
     except Exception as error:
         (out / "result.txt").write_text("FAIL: " + repr(error) + "\n")
         raise
@@ -503,7 +724,7 @@ def main():
             raise
         finally:
             print("Evidence:", out, "Fixture:", root, flush=True)
-    (out / "result.txt").write_text("PASS: Linux PTY tabs, navigation, form keys, config path, all-entry read-only refresh and cancellation. Backends were stubs; no real SSH, Tailscale, network or browser was tested.\n")
+    (out / "result.txt").write_text("PASS: Linux PTY aligned SSH/Serve tables, visible ports, narrow resize, color and NO_COLOR, linked SSH port defaults and explicit override, tabs, navigation, form keys, config path, all-entry read-only refresh and cancellation. Backends were stubs; no real SSH, Tailscale, network or browser was tested.\n")
 
 
 if __name__ == "__main__":

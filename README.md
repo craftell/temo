@@ -53,6 +53,10 @@ The first run opens the SSH tab. Use Left/Right or `1`/`2` to switch between SSH
 
 For SSH, choose an alias with Ctrl+P in the form or type one, then set the local port, remote target host, and target port. For Serve, leave the SSH host empty to run Tailscale locally, or enter an SSH alias to run Tailscale on that remote host. Remote hosts need a POSIX-compatible login shell and `tailscale` in PATH.
 
+The route table keeps status and listening/target ports aligned. SSH shows the local listening port; Serve shows the HTTPS port on the execution host. At narrower widths the layout prioritizes status and port numbers; press Enter or `d` for full hostnames and diagnostics. Status labels remain present with color disabled through `NO_COLOR` or `TERM=dumb`.
+
+New SSH entries start with matching target and local ports. Changing Target port also changes Local port until you edit the local value. Moving the cursor through Local port does not break the link. Existing saved routes and Serve HTTPS ports are never changed by this default.
+
 The SSH alias must already work noninteractively. Authenticate and accept its host key with your normal SSH client first. temo does not request passwords or weaken host-key checks.
 
 ## Keys
