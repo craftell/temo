@@ -179,7 +179,7 @@ class Screen:
                 self.col += 1
 
     def csi(self, raw, intermediate, final):
-        if final == "m":
+        if final == "m" and not raw.startswith(("?", ">", "=")):
             self.sgr(raw)
             return
         private = bool(raw) and raw[:1] in "?=>"
