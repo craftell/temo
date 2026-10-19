@@ -2,6 +2,101 @@
 
 遠くを、手元に。
 
-A terminal interface for managing SSH local forwards and Tailscale Serve.
+A terminal UI for named SSH forwards and Tailscale Serve routes. Manage remote development services from your Mac or Linux terminal.
 
-Initial development is in progress.
+## Install
+
+Release binaries support Linux and macOS on amd64 and arm64. The installer needs a published release; this PR does not publish one. These commands use the installer on `main`.
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/craftell/temo/main/install.sh | sh
+```
+
+To download and read the script first:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/craftell/temo/main/install.sh -o install.sh
+less install.sh
+sh install.sh
+```
+
+The installer checks SHA-256 before installing to `~/.local/bin`. It never uses sudo or edits shell profiles. Set `TEMO_VERSION` to an existing release tag to choose a version, or `TEMO_INSTALL_DIR` to choose another directory. Add the printed directory to PATH if needed.
+
+With Go 1.25+, you can also install with Go:
+
+```sh
+go install github.com/craftell/temo@latest
+```
+
+Or build from source:
+
+```sh
+git clone https://github.com/craftell/temo.git
+cd temo
+go build -o temo .
+./temo --version
+```
+
+`temo --version` or `temo -v` prints the release version and exits without opening the TUI. An unstamped build uses module or VCS build information when available, otherwise `dev`.
+
+## Run
+
+Requires OpenSSH and a terminal. Serve also requires Tailscale 1.52+ on the execution host.
+
+```sh
+temo
+```
+
+From a source checkout, use `go run .`.
+
+The first run opens an empty list. Press `a` to create an entry. Use `ssh` for a loopback SSH forward or `serve` for tailnet HTTPS.
+
+For SSH, choose an alias with Ctrl+P in the form or type one, then set the local port, remote target host, and target port. For Serve, leave the SSH host empty to run Tailscale locally, or enter an SSH alias to run Tailscale on that remote host. Remote hosts need a POSIX-compatible login shell and `tailscale` in PATH.
+
+The SSH alias must already work noninteractively. Authenticate and accept its host key with your normal SSH client first. temo does not request passwords or weaken host-key checks.
+
+## Keys
+
+- `j`, `k`, or arrow keys select a row.
+- `/` searches names and connection details.
+- `a` adds an entry. `e` edits a stopped entry.
+- `s` starts the selected entry. `x` stops its managed backend.
+- `r` refreshes the selected route's status. `o` opens the selected URL.
+- `d` or Enter shows full details. `?` shows help. `q` quits.
+- In a form, Ctrl+P lists Host names from `~/.ssh/config` and its Include files. Use arrows and Enter to choose, or Esc to return without a change. Wildcard patterns and Match blocks are skipped. Manual names and blank-host local Serve still work.
+- In a form, Tab changes fields, Ctrl+S saves, and Esc cancels. Ctrl+D opens a scrollable form error.
+
+A ready status means the backend is configured. It does not prove that the application responds. SSH entries open an HTTP URL; use your own client for non-HTTP services.
+
+## Persistence and ownership
+
+Quitting temo leaves started forwards and Serve routes running. Reopen temo with the same config directory to inspect or stop them. No background temo daemon is required.
+
+Definitions and per-entry ownership records live in the OS user config directory under `temo`. On macOS this is normally `~/Library/Application Support/temo`. Use `--config-dir /absolute/private/path` to choose another directory. The directory must have mode 0700. Config files contain connection metadata, not passwords or keys.
+
+Only one temo process can use a config directory at a time. Do not edit config or ownership files while it is running. Keep ownership records until every managed backend is stopped. Losing them can leave a backend running that temo will refuse to adopt.
+
+SSH uses a dedicated ControlMaster socket, binds to 127.0.0.1, and preserves SSH config identities, agents for authentication, and ProxyJump. It disables forwarding the agent and X11 to the destination. Aliases with inherited LocalForward, RemoteForward, or DynamicForward rules are rejected. Stop addresses only the saved temo control socket.
+
+Serve owns an entire dedicated HTTPS port with one root route to `http://127.0.0.1:PORT`. Choose an unused port such as 8443. It refuses occupied ports, Funnel on that port, foreground Serve sessions on that port, changed node identities, and observed changes to managed routes. It never invokes Funnel or resets Serve.
+
+Serve mutation uses the Tailscale CLI. Its before/after checks are not an atomic lock against other programs. A concurrent external writer can race with a change. Do not change the same device's Serve configuration concurrently. Strict conditional LocalAPI updates are future work. Remote Serve requires a stable alias pointing to one node, not a load balancer. Do not change SSH aliases or Tailscale profiles during an operation. Each remote command opens a separate SSH connection, so node identity checking is not atomic across those changes.
+
+An interrupted or ambiguous Serve operation keeps a pending ownership record and blocks further mutation. Inspect `tailscale serve status --json` on the execution host before resolving it. There is no automatic rollback that could erase another program's change.
+
+## Development and verification
+
+```sh
+go mod tidy
+go test -race ./...
+go vet ./...
+go build -o temo .
+```
+
+CI runs tests, vet, and builds on Linux and macOS. It also cross-builds macOS arm64, macOS amd64, and Linux amd64. Dependency checksums are generated by Go and checked into go.sum. CI also saves resolved module files as artifacts.
+
+[Verification guide](.cursor/skills/verify-temo/SKILL.md) includes an executed PTY helper for the real terminal UI, throwaway loopback SSH forwarding, and stubbed local and SSH Serve. It captures screens and checks backend state. Real Tailscale mutations, tailnet HTTPS, and graphical browser opening remain unverified. Mocked tests alone do not prove a live connection or rendered terminal interaction.
+
+[Design decisions](docs/design.md) explain the ownership boundary and current limits.
+
+Licensed under the [MIT License](LICENSE).
