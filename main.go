@@ -10,13 +10,20 @@ import (
 )
 
 func main() {
-	base, err := os.UserConfigDir()
-	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
+	base, configErr := os.UserConfigDir()
+	dir := flag.String("config-dir", filepath.Join(base, "temo"), "private directory for definitions and ownership")
+	var showVersion bool
+	flag.BoolVar(&showVersion, "version", false, "print version and exit")
+	flag.BoolVar(&showVersion, "v", false, "print version and exit")
+	flag.Parse()
+	if showVersion {
+		fmt.Println("temo", buildVersion())
+		return
+	}
+	if configErr != nil {
+		fmt.Fprintln(os.Stderr, configErr)
 		os.Exit(1)
 	}
-	dir := flag.String("config-dir", filepath.Join(base, "temo"), "private directory for definitions and ownership")
-	flag.Parse()
 	if err := run(*dir); err != nil {
 		fmt.Fprintln(os.Stderr, "temo:", safeText(err.Error()))
 		os.Exit(1)

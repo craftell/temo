@@ -4,14 +4,50 @@
 
 A terminal UI for named SSH forwards and Tailscale Serve routes. Manage remote development services from your Mac or Linux terminal.
 
-## Run
+## Install
 
-Requires Go 1.25+, OpenSSH, and a terminal. Serve also requires Tailscale 1.52+ on the execution host.
+Release binaries support Linux and macOS on amd64 and arm64. The installer needs a published release; this PR does not publish one. These commands use the installer on `main`.
 
 ```sh
-go mod tidy
-go run .
+curl -fsSL https://raw.githubusercontent.com/craftell/temo/main/install.sh | sh
 ```
+
+To download and read the script first:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/craftell/temo/main/install.sh -o install.sh
+less install.sh
+sh install.sh
+```
+
+The installer checks SHA-256 before installing to `~/.local/bin`. It never uses sudo or edits shell profiles. Set `TEMO_VERSION` to an existing release tag to choose a version, or `TEMO_INSTALL_DIR` to choose another directory. Add the printed directory to PATH if needed.
+
+With Go 1.25+, you can also install with Go:
+
+```sh
+go install github.com/craftell/temo@latest
+```
+
+Or build from source:
+
+```sh
+git clone https://github.com/craftell/temo.git
+cd temo
+go build -o temo .
+./temo --version
+```
+
+`temo --version` or `temo -v` prints the release version and exits without opening the TUI. An unstamped build uses module or VCS build information when available, otherwise `dev`.
+
+## Run
+
+Requires OpenSSH and a terminal. Serve also requires Tailscale 1.52+ on the execution host.
+
+```sh
+temo
+```
+
+From a source checkout, use `go run .`.
 
 The first run opens an empty list. Press `a` to create an entry. Use `ssh` for a loopback SSH forward or `serve` for tailnet HTTPS.
 
@@ -62,3 +98,5 @@ CI runs tests, vet, and builds on Linux and macOS. It also cross-builds macOS ar
 [Verification guide](.cursor/skills/verify-temo/SKILL.md) includes an executed PTY helper for the real terminal UI, throwaway loopback SSH forwarding, and stubbed local and SSH Serve. It captures screens and checks backend state. Real Tailscale mutations, tailnet HTTPS, and graphical browser opening remain unverified. Mocked tests alone do not prove a live connection or rendered terminal interaction.
 
 [Design decisions](docs/design.md) explain the ownership boundary and current limits.
+
+Licensed under the [MIT License](LICENSE).

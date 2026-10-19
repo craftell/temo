@@ -1,6 +1,6 @@
 ---
 name: verify-temo
-description: Run temo's real terminal UI in a private tmux server. Use after connection or UI changes to capture screens, test real loopback SSH, and check local and SSH Serve with a safe Tailscale stub.
+description: Verify temo after UI, connection, release, or installer changes. Drive the real TUI, test loopback SSH and stub Serve, and check version flags and checksum-verified installation with local snapshot artifacts.
 ---
 
 # Verify temo
@@ -98,9 +98,28 @@ GOOS=linux GOARCH=amd64 go build -o "$EVIDENCE/temo-linux-amd64" .
 
 Require no output from gofmt. Apply an approved host-only GOFLAGS override consistently if VCS discovery requires one. Record failures and remaining gaps. Do not relabel a stub check as live Tailscale evidence.
 
+## Release and installer checks
+
+Use this additional recipe after changing `install.sh`, version reporting, `.goreleaser.yaml`, or the release workflow. Requires GoReleaser on PATH. The executed run used a pinned GoReleaser 2.12.7 in a scratch directory, not a global install. ShellCheck is used if available; the executed run used a scratch copy of 0.11.0.
+
+```sh
+RELEASE_EVIDENCE=$(mktemp -d /tmp/temo-release-evidence-XXXXXXXX)
+.cursor/skills/verify-temo/verify-release.py --evidence "$RELEASE_EVIDENCE"
+```
+
+If tools are outside PATH, pass their executable paths with `--goreleaser` and `--shellcheck`. Use the same approved local GOFLAGS override as the TUI recipe if host VCS discovery needs it.
+
+The helper runs `goreleaser check` and `goreleaser release --snapshot --clean`. It copies the checked config and changes only `dist` to a fresh external scratch directory. It builds all four Linux/macOS amd64/arm64 archives, verifies their checksums and MIT license, and checks both version flags without HOME or a TUI. A loopback HTTP fixture then serves those real archives to the unmodified installer.
+
+Require successful latest-release installation, an explicit `TEMO_VERSION` install to a path with spaces, the correct PATH hint, and a shasum fallback when available. Wrong checksums must preserve an existing binary and must not create a new install directory. Unsupported OS and CPU values must fail before any request. Missing releases and invalid versions must give clear errors. The scratch shell profile must remain unchanged.
+
+Read [release and installation](features/release-and-install.md) for the complete contract. `result.txt`, command logs, HTTP requests, installed version, and cleanup notes remain in the evidence directory. Snapshot archives and scratch installations are retained at the path in `environment.json`. No release asset is published. The helper checks that tag refs did not change and stops its HTTP server before recording PASS.
+
+Do not replace `--snapshot` with a real release command. Do not create or push a tag during verification. The tag-only publishing workflow itself remains unexecuted until a separately approved first release.
+
 ## Cleanup
 
-The helper stops only its private tmux server, its owned SSH masters, its throwaway sshd, and its HTTP server, including after failure. It never kills by process name.
+The TUI helper stops only its private tmux server, its owned SSH masters, its throwaway sshd, and its HTTP server, including after failure. It never kills by process name.
 
 Evidence survives cleanup. Confirm `result.txt` and the numbered captures still exist. The helper retains the private scratch directory and prints its path. A deliberately uncertain stub route and pending journal remain there for inspection. They do not represent a real backend, and all live SSH resources must be stopped. Do not reuse the scratch config for normal work.
 
@@ -108,6 +127,6 @@ If interrupted in a way that prevents Python cleanup, use the exact scratch path
 
 ## Helpers
 
-Run `.cursor/skills/verify-temo/verify.py --evidence "$EVIDENCE"` directly. It uses only Python's standard library plus the listed command-line tools. Review the helper before execution when permissions or endpoint rules differ.
+Run `.cursor/skills/verify-temo/verify.py --evidence "$EVIDENCE"` for terminal checks and `.cursor/skills/verify-temo/verify-release.py --evidence "$RELEASE_EVIDENCE"` for snapshot and installer checks. Both use Python's standard library plus the listed command-line tools. Review the helpers before execution when permissions or endpoint rules differ.
 
 Use `/maintain-verification-skill` after behavior changes. Keep source coverage and runtime coverage separate. A real-tailnet check requires a separately approved disposable node and is not part of this safe default recipe.

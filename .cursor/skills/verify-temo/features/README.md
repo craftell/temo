@@ -6,5 +6,6 @@ Run [verify.py](../verify.py) using the [verification skill](../SKILL.md). Read 
 - [SSH forwarding](ssh-forwarding.md) covers real loopback forwarding, ownership, status, URL dispatch, stop, and quit/reopen.
 - [Tailscale Serve](tailscale-serve.md) covers local and SSH execution, lifecycle checks, conflicts, and uncertain outcomes against a stub.
 - [Terminal navigation](terminal-navigation.md) covers keyboard modes, details, help, resize, and waiting for an operation.
+- [Release and installation](release-and-install.md) covers version flags, local snapshots, archive checksums, and safe installer journeys.
 
-The Linux PTY recipe has been executed. Real SSH and HTTP reachability are covered. Tailscale remains stubbed, and the URL opener logs rather than launches a browser. These are integration gaps, not live-tailnet or graphical-browser proof.
+The Linux PTY recipe and local snapshot installer recipe have been executed. Real SSH and HTTP reachability are covered. Tailscale remains stubbed, and the URL opener logs rather than launches a browser. These are integration gaps, not live-tailnet or graphical-browser proof.
