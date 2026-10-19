@@ -121,7 +121,7 @@ func TestUpdateSafetyInvalidMetadataAndSizeLimits(t *testing.T) {
 	}{
 		{"invalid JSON", "{broken", 7},
 		{"declared oversized", "{}", (1 << 20) + 1},
-		{"streamed oversized", strings.Repeat(" ", (1 << 20) + 1), -1},
+		{"streamed oversized", strings.Repeat(" ", (1<<20)+1), -1},
 		{"trailing JSON", `{"tag_name":"v0.3.0"}{}`, -1},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
