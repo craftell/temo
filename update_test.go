@@ -71,16 +71,17 @@ func updateTestArchive(t *testing.T, entries ...updateTestEntry) []byte {
 }
 
 type updateTestFixture struct {
-	tag           string
-	draft         bool
-	prerelease    bool
-	archive       []byte
-	checksums     string
-	status        int
-	requests      []string
-	mu            sync.Mutex
-	beforeArchive func()
-	transportErr  error
+	tag             string
+	draft           bool
+	prerelease      bool
+	archive         []byte
+	checksums       string
+	status          int
+	requests        []string
+	mu              sync.Mutex
+	beforeArchive   func()
+	transportErr    error
+	metadataMutator func(map[string]any)
 }
 
 func newUpdateTestFixture(t *testing.T) *updateTestFixture {
@@ -114,13 +115,17 @@ func (f *updateTestFixture) client() *http.Client {
 		switch r.URL.String() {
 		case "https://api.github.com/repos/craftell/temo/releases/latest":
 			base := "https://github.com/craftell/temo/releases/download/" + f.tag + "/"
-			body, _ = json.Marshal(map[string]any{
+			metadata := map[string]any{
 				"tag_name": f.tag, "draft": f.draft, "prerelease": f.prerelease,
 				"assets": []map[string]any{
 					{"name": f.assetName(), "browser_download_url": base + f.assetName(), "size": len(f.archive)},
 					{"name": "checksums.txt", "browser_download_url": base + "checksums.txt", "size": len(f.checksums)},
 				},
-			})
+			}
+			if f.metadataMutator != nil {
+				f.metadataMutator(metadata)
+			}
+			body, _ = json.Marshal(metadata)
 		case "https://github.com/craftell/temo/releases/download/" + f.tag + "/checksums.txt":
 			body = []byte(f.checksums)
 		case "https://github.com/craftell/temo/releases/download/" + f.tag + "/" + f.assetName():
@@ -276,12 +281,30 @@ func TestUpdateFailuresPreserveInstalledBinary(t *testing.T) {
 		{"malformed checksum", func(f *updateTestFixture) { f.checksums = "bad  " + f.assetName() + "\n" }},
 		{"duplicate checksum", func(f *updateTestFixture) { f.checksums += f.checksums }},
 		{"invalid gzip", func(f *updateTestFixture) { f.archive = []byte("not gzip"); f.rehash() }},
-		{"missing executable", func(f *updateTestFixture) { f.archive = updateTestArchive(t, updateTestEntry{name: "README.md", data: "readme"}); f.rehash() }},
-		{"duplicate executable", func(f *updateTestFixture) { f.archive = updateTestArchive(t, updateTestEntry{name: "temo", data: "one"}, updateTestEntry{name: "temo", data: "two"}); f.rehash() }},
-		{"traversal", func(f *updateTestFixture) { f.archive = updateTestArchive(t, updateTestEntry{name: "../temo", data: "bad"}); f.rehash() }},
-		{"absolute path", func(f *updateTestFixture) { f.archive = updateTestArchive(t, updateTestEntry{name: "/temo", data: "bad"}); f.rehash() }},
-		{"symlink", func(f *updateTestFixture) { f.archive = updateTestArchive(t, updateTestEntry{name: "temo", kind: tar.TypeSymlink}); f.rehash() }},
-		{"hardlink", func(f *updateTestFixture) { f.archive = updateTestArchive(t, updateTestEntry{name: "temo", kind: tar.TypeLink}); f.rehash() }},
+		{"missing executable", func(f *updateTestFixture) {
+			f.archive = updateTestArchive(t, updateTestEntry{name: "README.md", data: "readme"})
+			f.rehash()
+		}},
+		{"duplicate executable", func(f *updateTestFixture) {
+			f.archive = updateTestArchive(t, updateTestEntry{name: "temo", data: "one"}, updateTestEntry{name: "temo", data: "two"})
+			f.rehash()
+		}},
+		{"traversal", func(f *updateTestFixture) {
+			f.archive = updateTestArchive(t, updateTestEntry{name: "../temo", data: "bad"})
+			f.rehash()
+		}},
+		{"absolute path", func(f *updateTestFixture) {
+			f.archive = updateTestArchive(t, updateTestEntry{name: "/temo", data: "bad"})
+			f.rehash()
+		}},
+		{"symlink", func(f *updateTestFixture) {
+			f.archive = updateTestArchive(t, updateTestEntry{name: "temo", kind: tar.TypeSymlink})
+			f.rehash()
+		}},
+		{"hardlink", func(f *updateTestFixture) {
+			f.archive = updateTestArchive(t, updateTestEntry{name: "temo", kind: tar.TypeLink})
+			f.rehash()
+		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			f := newUpdateTestFixture(t)
@@ -427,5 +450,31 @@ func TestUpdateDoesNotOverwriteChangedTarget(t *testing.T) {
 	got, err := os.ReadFile(path)
 	if err != nil || string(got) != "another installed version\n" {
 		t.Fatalf("concurrent replacement not preserved: %q, %v", got, err)
+	}
+}
+
+func TestUpdateRejectsInvalidAssetMetadata(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		change func([]map[string]any) []map[string]any
+	}{
+		{"untrusted host", func(a []map[string]any) []map[string]any { a[0]["browser_download_url"] = "https://example.com/temo.tar.gz"; return a }},
+		{"wrong repository", func(a []map[string]any) []map[string]any { a[0]["browser_download_url"] = "https://github.com/other/temo/releases/download/v0.3.0/" + a[0]["name"].(string); return a }},
+		{"wrong tag", func(a []map[string]any) []map[string]any { a[0]["browser_download_url"] = "https://github.com/craftell/temo/releases/download/v0.2.0/" + a[0]["name"].(string); return a }},
+		{"oversized asset", func(a []map[string]any) []map[string]any { a[0]["size"] = 65 << 20; return a }},
+		{"missing archive", func(a []map[string]any) []map[string]any { return a[1:] }},
+		{"duplicate archive", func(a []map[string]any) []map[string]any { return append(a, a[0]) }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newUpdateTestFixture(t)
+			f.metadataMutator = func(metadata map[string]any) {
+				metadata["assets"] = tc.change(metadata["assets"].([]map[string]any))
+			}
+			path := updateTestExecutable(t)
+			if _, err := updateTestUpdater(f, path).Run(context.Background(), false); err == nil {
+				t.Fatal("unsafe asset metadata accepted")
+			}
+			assertUpdateTestOldBinary(t, path)
+		})
 	}
 }
