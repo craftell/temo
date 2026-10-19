@@ -22,7 +22,7 @@ Requires Python 3.9+, Go 1.25+, tmux, OpenSSH client and server, ssh-keygen, and
 
 The helper builds `temo` in a mode-0700 scratch directory. It starts a private tmux server at 100 columns and 32 rows, a high-port loopback sshd, and a loopback HTTP server. The usable initial screen contains `temo | SSH` and `No matching routes`.
 
-The SSH wrapper uses a generated config, throwaway keys, and a scratch known_hosts file. The scratch sshd disables password authentication and checks only its generated public key. Its `StrictModes no` setting permits an authorized-key file under `/tmp`. This is test setup, not a recommended SSH configuration. The helper does not change `~/.ssh`, use remote hosts, or access the machine's real Serve configuration.
+The TUI uses a scratch HOME. Its `.ssh/config` includes a scratch alias file. The SSH wrapper uses that generated config, an absolute Include path, throwaway keys, and a scratch known_hosts file. The scratch sshd disables password authentication and checks only its generated public key. Its `StrictModes no` setting permits an authorized-key file under `/tmp`. This is test setup, not a recommended SSH configuration. The helper does not change `~/.ssh`, use remote hosts, or access the machine's real Serve configuration.
 
 Before the run, check whether real Tailscale is available. If installed, inspect only login state, without printing node or peer identities.
 
@@ -66,7 +66,7 @@ A live process without the expected rendered screen is not a successful doctor c
 
 The executable [verify.py](verify.py) drives these journeys in one private tmux server, reopening the app twice with the same scratch config.
 
-1. Reject a second writer. Show an invalid form and its full error. Add, save, and edit a stopped SSH entry. Inspect the saved JSON and mode 0600.
+1. Reject a second writer. Show an invalid form and its full error. Add an SSH entry, open Ctrl+P, pick `lab` from the included scratch Host names, and save. Reopen the picker while editing the stopped entry and confirm `lab` stays selected. Inspect the saved JSON and mode 0600.
 2. Search for a missing name and a saved name. Show help. Resize to 60 by 20, below the supported minimum, and back to 100 by 32.
 3. Start real loopback SSH with an inherited `GatewayPorts yes`. Reach the HTTP target through `127.0.0.1` and reject a connection through `127.0.0.2`. Check the private active ownership record.
 4. Open the SSH URL through a logging opener stub. Refuse editing while active. Quit, confirm HTTP still responds, reopen, refresh, and stop. Confirm the forward disappears and an unrelated scratch ControlMaster survives.

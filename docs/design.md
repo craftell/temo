@@ -21,7 +21,7 @@ The smallest safe implementation has no auto-reconnect, deletion, arbitrary comm
 
 The CLI-based Serve read/change/read sequence can race with another writer. Exact-state comparison detects observed drift, not all concurrent changes or identical replacement. A future LocalAPI adapter should preserve unknown JSON fields and use ETag/If-Match.
 
-SSH control checks prove a master is alive. ExitOnForwardFailure proves forwarding setup. Neither proves application health. SSH config may contain trusted ProxyCommand or Match exec directives; temo honors the user's SSH configuration.
+SSH control checks prove a master is alive. ExitOnForwardFailure proves forwarding setup. Neither proves application health. The form's Ctrl+P picker reads literal Host names from `~/.ssh/config` and included files, skipping wildcard patterns and Match blocks. It does not run SSH or store other config values. Manual names and blank-host local Serve remain available. Selection does not change the engine's `ssh -G`, strict host-key, or inherited-forwarding checks. SSH config may contain trusted ProxyCommand or Match exec directives; temo honors the user's SSH configuration when running a route.
 
 A stopped backend must be confirmed before changing a definition. Missing dependencies and unreadable backend state are errors, not a stopped result.
 

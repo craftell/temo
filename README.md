@@ -15,7 +15,7 @@ go run .
 
 The first run opens an empty list. Press `a` to create an entry. Use `ssh` for a loopback SSH forward or `serve` for tailnet HTTPS.
 
-For SSH, set your SSH config alias, local port, remote target host, and target port. For Serve, leave the SSH host empty to run Tailscale locally, or enter an SSH alias to run Tailscale on that remote host. Remote hosts need a POSIX-compatible login shell and `tailscale` in PATH.
+For SSH, choose an alias with Ctrl+P in the form or type one, then set the local port, remote target host, and target port. For Serve, leave the SSH host empty to run Tailscale locally, or enter an SSH alias to run Tailscale on that remote host. Remote hosts need a POSIX-compatible login shell and `tailscale` in PATH.
 
 The SSH alias must already work noninteractively. Authenticate and accept its host key with your normal SSH client first. temo does not request passwords or weaken host-key checks.
 
@@ -27,6 +27,7 @@ The SSH alias must already work noninteractively. Authenticate and accept its ho
 - `s` starts the selected entry. `x` stops its managed backend.
 - `r` refreshes the selected route's status. `o` opens the selected URL.
 - `d` or Enter shows full details. `?` shows help. `q` quits.
+- In a form, Ctrl+P lists Host names from `~/.ssh/config` and its Include files. Use arrows and Enter to choose, or Esc to return without a change. Wildcard patterns and Match blocks are skipped. Manual names and blank-host local Serve still work.
 - In a form, Tab changes fields, Ctrl+S saves, and Esc cancels. Ctrl+D opens a scrollable form error.
 
 A ready status means the backend is configured. It does not prove that the application responds. SSH entries open an HTTP URL; use your own client for non-HTTP services.

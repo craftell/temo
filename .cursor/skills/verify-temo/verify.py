@@ -76,12 +76,14 @@ class Lab:
             raise ValueError("evidence directory must be empty")
         self.out.mkdir(parents=True, exist_ok=True)
         self.root = Path(tempfile.mkdtemp(prefix="temo-v-"))
+        self.home = self.root / "home"
+        (self.home / ".ssh").mkdir(parents=True, mode=0o700)
         self.config = self.root / "config"
         self.config.mkdir(mode=0o700)
         self.bin = self.root / "bin"
         self.bin.mkdir()
         self.socket_name = "temo-verify-" + str(os.getpid())
-        self.env = dict(os.environ, TEMO_LAB=str(self.root),
+        self.env = dict(os.environ, TEMO_LAB=str(self.root), HOME=str(self.home),
                         PATH=str(self.bin) + os.pathsep + os.environ["PATH"])
         self.processes = []
         self.screen = 0
@@ -198,8 +200,11 @@ ForceCommand {self.bin}/remote
             except OSError:
                 assert time.monotonic() < deadline, "sshd did not listen"
                 time.sleep(0.1)
-        client = self.root / "ssh_config"
-        client.write_text(f"""Host lab inherited
+        client = self.home / ".ssh" / "config"
+        aliases = self.home / ".ssh" / "hosts.conf"
+        aliases.write_text("Host lab inherited\n")
+        client.write_text(f"""Include {aliases}
+Host *
  HostName 127.0.0.1
  Port {self.sshport}
  User {pwd.getpwuid(os.getuid()).pw_name}
@@ -219,7 +224,7 @@ Host inherited
 
     def launch(self):
         command = shlex.join(["env", "TERM=xterm-256color", "PATH=" + self.env["PATH"],
-                              "TEMO_LAB=" + str(self.root), str(self.root / "temo"),
+                              "TEMO_LAB=" + str(self.root), "HOME=" + str(self.home), str(self.root / "temo"),
                               "--config-dir", str(self.config)])
         self.tmux("new-session", "-d", "-s", "app", "-x", "100", "-y", "32", command)
         self.tmux("set-option", "-g", "remain-on-exit", "on")
@@ -234,13 +239,21 @@ Host inherited
             time.sleep(0.1)
         self.tmux("kill-session", "-t", "app")
 
-    def add(self, name, kind="ssh", host="lab", local=None, serve=8443):
+    def add(self, name, kind="ssh", host="lab", local=None, serve=8443, pick_host=False):
         self.key("a")
         self.wait("Add route", "add-form")
         values = [name, kind, host, "127.0.0.1", str(self.target), str(local or self.local), str(serve)]
-        for value in values:
+        for index, value in enumerate(values):
             self.key("C-u")
-            if value:
+            if index == 2 and pick_host:
+                self.key("C-p")
+                screen = self.wait("temo | SSH hosts", "ssh-host-list")
+                assert "inherited" in screen and "lab" in screen and "HostName" not in screen
+                self.key("Down")
+                self.wait("> lab", "ssh-host-selected")
+                self.key("Enter")
+                self.wait("Add route", "ssh-host-in-form")
+            elif value:
                 self.text(value)
             self.key("Tab")
         self.capture("filled-form")
@@ -280,12 +293,16 @@ Host inherited
         self.wait("Error (Ctrl+D): name", "validation-error")
         self.action("C-d", "Form error", "form-error-details")
         self.key("Escape", "Escape")
-        self.add("local-q-ssh")
+        self.add("local-q-ssh", pick_host=True)
         cfgpath = self.config / "config.json"
         assert cfgpath.stat().st_mode & 0o777 == 0o600
         self.action("e", "Edit route", "edit")
         self.key("C-u")
         self.text("local-ssh")
+        self.key("C-p")
+        self.wait("> lab", "edit-ssh-host-list")
+        self.key("Enter")
+        self.wait("Edit route", "edit-ssh-host-in-form")
         self.key("C-s")
         self.wait("Saved local-ssh", "edited")
         saved = json.loads(cfgpath.read_text())["entries"][0]

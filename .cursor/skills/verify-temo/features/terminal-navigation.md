@@ -2,7 +2,7 @@
 
 ## Sub-features
 
-Select routes, search, edit text, view full errors, scroll details, show help, resize, and wait for a backend operation before quitting.
+Select routes and configured SSH hosts, search, edit text, view full errors, scroll details, show help, resize, and wait for a backend operation before quitting.
 
 Source entry points are `ui.go`'s `updateKey`, `View`, `detailLines`, `detailText`, and `uiTextField.edit`.
 
@@ -12,7 +12,7 @@ Launch temo in a terminal. Use `j`, `k`, or arrows to select. Press `/` to searc
 
 ## Driving it with tmux
 
-Run the helper from [Launch](../SKILL.md#launch). It captures list, form, search, validation error, backend error, and help screens. A name containing `q` must save without quitting. Resizes cover 60 by 20, the too-small 40 by 10 warning, and the restored 100 by 32 view.
+Run the helper from [Launch](../SKILL.md#launch). It captures list, form, Ctrl+P host selection in add and edit, search, validation error, backend error, and help screens. A name containing `q` must save without quitting. Resizes cover 60 by 20, the too-small 40 by 10 warning, and the restored 100 by 32 view.
 
 While a delayed stub status runs, send `s` and `q`. The TUI must remain alive, show `Wait for the current operation before quitting`, and issue no start command. Let status finish before the next action.
 

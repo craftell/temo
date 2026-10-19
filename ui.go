@@ -84,6 +84,9 @@ func (m model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		if m.editor != nil {
+			if m.editor.picker != nil {
+				return m, nil
+			}
 			m.editor.fields[m.editor.focus].insert(msg.Content)
 			m.editor.err = ""
 		} else if m.searching {
@@ -168,7 +171,39 @@ func (m model) updateKey(key tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	if m.editor != nil {
+		if picker := m.editor.picker; picker != nil {
+			switch k {
+			case "esc", "ctrl+p":
+				m.editor.picker = nil
+			case "j", "down":
+				picker.cursor = uiClamp(picker.cursor+1, 0, len(picker.names)-1)
+			case "k", "up":
+				picker.cursor = uiClamp(picker.cursor-1, 0, len(picker.names)-1)
+			case "pgdown":
+				picker.cursor = uiClamp(picker.cursor+max(1, m.height-5), 0, len(picker.names)-1)
+			case "pgup":
+				picker.cursor = uiClamp(picker.cursor-max(1, m.height-5), 0, len(picker.names)-1)
+			case "enter":
+				if len(picker.names) > 0 {
+					name := []rune(picker.names[picker.cursor])
+					m.editor.fields[uiSSHHost] = uiTextField{value: name, cursor: len(name)}
+					m.editor.focus = uiSSHHost
+					m.editor.err = ""
+					m.editor.picker = nil
+				}
+			}
+			return m, nil
+		}
 		switch k {
+		case "ctrl+p":
+			picker := &uiHostPicker{names: configuredSSHHosts()}
+			for i, name := range picker.names {
+				if strings.EqualFold(name, string(m.editor.fields[uiSSHHost].value)) {
+					picker.cursor = i
+					break
+				}
+			}
+			m.editor.picker = picker
 		case "esc":
 			m.editor = nil
 			m.notice = "Edit cancelled."
@@ -352,7 +387,7 @@ func (m model) View() tea.View {
 		lines = []string{
 			"temo help", "",
 			"j/k or arrows  Select a route", "s  Start     x  Stop     o  Open URL",
-			"r  Refresh the selected route's status", "a  Add       e  Edit a stopped route",
+			"r  Refresh the selected route's status", "a  Add  e  Edit | Form: Ctrl+P SSH hosts",
 			"d or Enter  Read full details; j/k scroll",
 			"/  Search    Enter keeps filter    Esc clears",
 			"? or Esc  Close help", "q or Ctrl+C  Quit; started routes remain running",
@@ -505,7 +540,13 @@ const (
 	uiFieldCount
 )
 
+type uiHostPicker struct {
+	names  []string
+	cursor int
+}
+
 type uiEntryForm struct {
+	picker   *uiHostPicker
 	original Entry
 	isNew    bool
 	fields   [uiFieldCount]uiTextField
@@ -552,6 +593,22 @@ func (f uiEntryForm) entry() (Entry, error) {
 
 func (m model) formLines() []string {
 	form := m.editor
+	if picker := form.picker; picker != nil {
+		lines := []string{"temo | SSH hosts", fmt.Sprintf("%d configured hosts", len(picker.names)), ""}
+		rows := max(1, m.height-5)
+		start := max(0, picker.cursor-rows+1)
+		for i := start; i < min(len(picker.names), start+rows); i++ {
+			marker := "  "
+			if i == picker.cursor {
+				marker = "> "
+			}
+			lines = append(lines, marker+safeText(picker.names[i]))
+		}
+		if len(picker.names) == 0 {
+			lines = append(lines, "No configured SSH hosts. Type a host in the form.")
+		}
+		return append(lines, "", "Up/Down or j/k select  Enter use  Esc cancel")
+	}
 	title := "Edit route"
 	if form.isNew {
 		title = "Add route"
@@ -570,7 +627,7 @@ func (m model) formLines() []string {
 	if form.err != "" {
 		message = "Error (Ctrl+D): " + safeText(form.err)
 	}
-	return append(lines, "Blank SSH host runs Serve on this machine.", "Only the selected kind's port is used.", message, "Ctrl+S save  Ctrl+D full error  Esc cancel")
+	return append(lines, "Blank SSH host runs Serve on this machine.", "Only the selected kind's port is used.", message, "Ctrl+S save  Ctrl+P hosts  Ctrl+D error  Esc cancel")
 }
 
 type uiTextField struct {
