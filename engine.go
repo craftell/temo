@@ -232,7 +232,7 @@ func (g *Engine) ssh(ctx context.Context, e Entry, action string) (Result, error
 	forward := fmt.Sprintf("127.0.0.1:%d:%s", e.LocalPort, target)
 	args = append(sshOptions(), "-o", "ClearAllForwardings=no", "-M", "-S", socket, "-o", "ControlMaster=yes", "-o", "ControlPersist=yes", "-o", "ExitOnForwardFailure=yes", "-f", "-N", "-L", forward, "--", e.SSHHost)
 	if _, err := g.Runner.Run(ctx, "ssh", args...); err != nil {
-		return Result{}, fmt.Errorf("start outcome may be uncertain; refresh before retrying: %w", err)
+		return Result{}, fmt.Errorf("start outcome may be uncertain; use Stop (x) to release ownership before retrying: %w", err)
 	}
 	if err := control("check"); err != nil {
 		return Result{}, fmt.Errorf("SSH setup returned but control check failed: %w", err)

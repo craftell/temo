@@ -197,3 +197,44 @@ func TestObserveCancellationPreservesJournal(t *testing.T) {
 		}
 	}
 }
+
+func TestSSHFailedStartDirectsUserToStop(t *testing.T) {
+	e := exampleSSH()
+	r := &fakeRunner{run: func(_ string, args []string) ([]byte, error) {
+		switch {
+		case contains(args, "-G"):
+			return []byte("hostname 127.0.0.1\n"), nil
+		case contains(args, "-M"):
+			return nil, errors.New("bind: Address already in use")
+		case contains(args, "check"):
+			return nil, &exec.ExitError{}
+		}
+		t.Errorf("unexpected command: %v", args)
+		return nil, errors.New("unexpected command")
+	}}
+	g := Engine{Store: testStore(t), Runner: r}
+	got := g.Do(e, "start")
+	if got.State != "error" || !strings.Contains(got.Detail, "use Stop") || strings.Contains(got.Detail, "refresh before") {
+		t.Fatal(got)
+	}
+	before, err := os.ReadFile(g.journalPath(e))
+	if err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(g.journalPath(e))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, action := range []string{"status", "start"} {
+		if got := g.Do(e, action); got.State != "error" || !strings.Contains(got.Detail, "use explicit stop") {
+			t.Fatal(action, got)
+		}
+		assertJournalUnchanged(t, &g, e, before, info)
+	}
+	if got := g.Do(e, "stop"); got.State != "stopped" {
+		t.Fatal(got)
+	}
+	if _, err := os.Stat(g.journalPath(e)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("explicit stop retained journal: %v", err)
+	}
+}
