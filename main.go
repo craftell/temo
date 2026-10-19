@@ -10,6 +10,13 @@ import (
 )
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "update" {
+		if err := runUpdateCLI(os.Args[2:], os.Stdout); err != nil {
+			fmt.Fprintln(os.Stderr, "temo:", safeText(err.Error()))
+			os.Exit(1)
+		}
+		return
+	}
 	base, configErr := os.UserConfigDir()
 	dir := flag.String("config-dir", filepath.Join(base, "temo"), "private directory for definitions and ownership")
 	var showVersion bool

@@ -13,6 +13,8 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
+      - name: Require the version prepared in the feature PR
+        run: test "$GITHUB_REF_NAME" = "v$(cat VERSION)"
       - uses: actions/setup-go@v5
         with:
           go-version: '1.25.x'

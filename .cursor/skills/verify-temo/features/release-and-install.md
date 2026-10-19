@@ -22,6 +22,8 @@ Require the installed binary's two version flags to match the snapshot version. 
 
 ## Gotchas
 
-A first release is required before the public curl command can install an asset. This change does not publish one. Checksums verify download integrity, not a publisher signature. `TEMO_RELEASE_BASE_URL` is a test or trusted-mirror override; normal installs use GitHub HTTPS.
+The public curl command installs published assets only (v0.1.0 and v0.2.0 exist; the snapshot run does not publish one). Checksums verify download integrity, not a publisher signature. `TEMO_RELEASE_BASE_URL` is a test or trusted-mirror override; normal installs use GitHub HTTPS.
 
 Only the native snapshot binary is executed by the helper. The other three targets are built, archived, and checksummed, not run. Real tag-triggered publishing, GitHub release permissions, and installation on other operating systems remain unverified until separately approved runs. Snapshot verification must never create or push a tag.
+
+The release helper also asserts that the native snapshot binary was linked with the tag-derived version and `main.updateChannel=github-release`, that a source build carries no channel marker, and that every archive contains exactly `temo`, `LICENSE`, and `README.md` as regular files with an executable binary. These are the contract `temo update` relies on; see [self-update](self-update.md).
