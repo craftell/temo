@@ -15,31 +15,34 @@ import (
 )
 
 type model struct {
-	cfg           Config
-	states        map[string]Result
-	kind          string
-	tabs          map[string]uiTabState
-	configPath    string
-	configDetails bool
-	refresh       uiRefresh
-	startupWait   bool
-	quitting      bool
-	revisions     map[string]uint64
-	do            func(Entry, string) Result
-	observe       func(context.Context, Entry) Result
-	persist       func(Config) error
-	width         int
-	height        int
-	cursor        int
-	query         uiTextField
-	searching     bool
-	help          bool
-	details       bool
-	detailsOffset int
-	editor        *uiEntryForm
-	busy          string
-	ticket        uint64
-	notice        string
+	cfg             Config
+	states          map[string]Result
+	kind            string
+	tabs            map[string]uiTabState
+	configPath      string
+	configDetails   bool
+	refresh         uiRefresh
+	startupWait     bool
+	quitting        bool
+	revisions       map[string]uint64
+	do              func(Entry, string) Result
+	observe         func(context.Context, Entry) Result
+	persist         func(Config) error
+	reload          func() (Config, error)
+	configUncertain bool
+	deletion        *uiDeleteDialog
+	width           int
+	height          int
+	cursor          int
+	query           uiTextField
+	searching       bool
+	help            bool
+	details         bool
+	detailsOffset   int
+	editor          *uiEntryForm
+	busy            string
+	ticket          uint64
+	notice          string
 }
 
 type uiTabState struct {
@@ -76,11 +79,13 @@ type uiRouteDone struct {
 }
 
 type uiSaveDone struct {
-	ticket  uint64
-	cfg     Config
-	entry   Entry
-	checked *Result
-	err     error
+	ticket    uint64
+	cfg       Config
+	entry     Entry
+	checked   *Result
+	err       error
+	reloaded  *Config
+	uncertain bool
 }
 
 func NewModel(cfg Config, store *Store, engine *Engine) model {
@@ -107,6 +112,7 @@ func NewModel(cfg Config, store *Store, engine *Engine) model {
 	}
 	if store != nil {
 		m.persist = store.Save
+		m.reload = store.Load
 		m.configPath = filepath.Join(store.Dir, "config.json")
 	}
 	return m
@@ -174,14 +180,14 @@ func (m model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	}
 	switch msg := message.(type) {
 	case uiRefreshStart:
-		if m.busy != "" || m.editor != nil {
+		if m.busy != "" || m.editor != nil || m.deletion != nil {
 			m.startupWait = true
 			return m, nil
 		}
 		cmd := m.startRefresh()
 		return m, cmd
 	case uiObserved:
-		if m.refresh.pending[msg.entry.ID] != msg.revision {
+		if revision, pending := m.refresh.pending[msg.entry.ID]; !pending || revision != msg.revision {
 			return m, nil
 		}
 		delete(m.refresh.pending, msg.entry.ID)
@@ -194,13 +200,27 @@ func (m model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		cmd := m.fillRefresh()
 		return m, cmd
+	case uiDeleteDone:
+		return m.finishDelete(msg)
+	case uiReloadDone:
+		if msg.ticket != m.ticket || m.busy == "" {
+			return m, nil
+		}
+		m.busy = ""
+		if msg.err != nil {
+			m.notice = "Configuration reload failed: " + msg.err.Error()
+			return m, nil
+		}
+		m.adoptReload(msg.cfg)
+		m.configUncertain = false
+		m.notice = "Configuration reloaded. Mutations are available again."
 	case tea.WindowSizeMsg:
 		m.width = max(1, msg.Width)
 		m.height = max(1, msg.Height)
 	case tea.KeyPressMsg:
 		return m.updateKey(msg)
 	case tea.PasteMsg:
-		if m.busy != "" || m.details || m.help {
+		if m.busy != "" || m.details || m.help || m.deletion != nil {
 			return m, nil
 		}
 		if m.editor != nil {
@@ -239,6 +259,10 @@ func (m model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			m.states[msg.entry.ID] = *msg.checked
 		}
 		if msg.err != nil {
+			if msg.reloaded != nil {
+				m.adoptReload(*msg.reloaded)
+			}
+			m.configUncertain = msg.uncertain
 			if m.editor != nil {
 				m.editor.err = msg.err.Error()
 			}
@@ -247,8 +271,8 @@ func (m model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.cfg = msg.cfg
 		m.editor = nil
-		m.query = uiTextField{}
 		m.searching = false
+		m.cursor = uiClamp(m.cursor, 0, len(m.visible())-1)
 		for i, index := range m.visible() {
 			if m.cfg.Entries[index].ID == msg.entry.ID {
 				m.cursor = i
@@ -258,7 +282,7 @@ func (m model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		m.states[msg.entry.ID] = Result{State: "unknown", Detail: "Settings saved. Press r to inspect status."}
 		m.notice = "Saved " + msg.entry.Name + "."
 	}
-	if m.startupWait && m.busy == "" && m.editor == nil {
+	if m.startupWait && m.busy == "" && m.editor == nil && m.deletion == nil {
 		m.startupWait = false
 		cmd := m.startRefresh()
 		return m, cmd
@@ -270,6 +294,9 @@ func (m model) updateKey(key tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	k := key.String()
 	if k == "ctrl+c" {
 		return m.quit()
+	}
+	if m.deletion != nil {
+		return m.updateDeleteKey(k)
 	}
 	if m.busy != "" && m.editor != nil && !m.details {
 		m.notice = "Wait for the current operation before editing."
@@ -287,11 +314,11 @@ func (m model) updateKey(key tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		case "k", "up":
 			m.detailsOffset--
 		case "pgdown":
-			m.detailsOffset += max(1, m.height-2)
+			m.detailsOffset += m.detailPageSize()
 		case "pgup":
-			m.detailsOffset -= max(1, m.height-2)
+			m.detailsOffset -= m.detailPageSize()
 		}
-		m.detailsOffset = uiClamp(m.detailsOffset, 0, max(0, len(m.detailText())-max(1, m.height-2)))
+		m.detailsOffset = uiClamp(m.detailsOffset, 0, max(0, len(m.detailText())-m.detailPageSize()))
 		return m, nil
 	}
 	if m.editor != nil {
@@ -304,9 +331,9 @@ func (m model) updateKey(key tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			case "k", "up":
 				picker.cursor = uiClamp(picker.cursor-1, 0, len(picker.names)-1)
 			case "pgdown":
-				picker.cursor = uiClamp(picker.cursor+max(1, m.height-5), 0, len(picker.names)-1)
+				picker.cursor = uiClamp(picker.cursor+max(1, m.detailPageSize()-2), 0, len(picker.names)-1)
 			case "pgup":
-				picker.cursor = uiClamp(picker.cursor-max(1, m.height-5), 0, len(picker.names)-1)
+				picker.cursor = uiClamp(picker.cursor-max(1, m.detailPageSize()-2), 0, len(picker.names)-1)
 			case "enter":
 				if len(picker.names) > 0 {
 					name := []rune(picker.names[picker.cursor])
@@ -380,18 +407,23 @@ func (m model) updateKey(key tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		case "q":
 			return m.quit()
 		case "p":
-			m.help = false
 			m.details, m.configDetails, m.detailsOffset = true, true, 0
 		}
 		return m, nil
 	}
-	if m.busy != "" && strings.Contains("aersxo", k) && len(k) == 1 {
+	if m.busy != "" && strings.Contains("aersxoD", k) && len(k) == 1 {
 		m.notice = "Wait for the current operation before starting another."
+		return m, nil
+	}
+	if m.configUncertain && strings.Contains("aesxoD", k) && len(k) == 1 {
+		m.notice = "Configuration state is uncertain. Press r to reload before making changes."
 		return m, nil
 	}
 	switch k {
 	case "q":
 		return m.quit()
+	case "D":
+		return m.openDelete()
 	case "?":
 		m.help = true
 	case "left", "right":
@@ -407,6 +439,9 @@ func (m model) updateKey(key tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "p":
 		m.details, m.configDetails, m.detailsOffset = true, true, 0
 	case "r":
+		if m.configUncertain {
+			return m.reloadConfig()
+		}
 		cmd := m.startRefresh()
 		return m, cmd
 	case "/":
@@ -485,6 +520,10 @@ func (m model) runEntry(entry Entry, action string, edit bool) (tea.Model, tea.C
 }
 
 func (m model) saveEditor() (tea.Model, tea.Cmd) {
+	if m.configUncertain {
+		m.editor.err = "Configuration state is uncertain. Cancel and press r to reload."
+		return m, nil
+	}
 	entry, err := m.editor.entry()
 	if err != nil {
 		m.editor.err = err.Error()
@@ -493,11 +532,21 @@ func (m model) saveEditor() (tea.Model, tea.Cmd) {
 	next := cloneUIConfig(m.cfg)
 	original, isNew := m.editor.original, m.editor.isNew
 	if isNew {
+		for _, current := range next.Entries {
+			if current.ID == entry.ID {
+				m.editor.err = "This definition is already saved. Cancel and reopen it before making changes."
+				return m, nil
+			}
+		}
 		next.Entries = append(next.Entries, entry)
 	} else {
 		found := false
 		for i := range next.Entries {
 			if next.Entries[i].ID == entry.ID {
+				if next.Entries[i] != original {
+					m.editor.err = "The saved definition changed. Cancel and reopen it before making changes."
+					return m, nil
+				}
 				next.Entries[i] = entry
 				found = true
 				break
@@ -513,7 +562,7 @@ func (m model) saveEditor() (tea.Model, tea.Cmd) {
 	m.busy = "saving " + entry.Name
 	m.editor.err = ""
 	m.notice = ""
-	ticket, run, persist := m.ticket, m.do, m.persist
+	ticket, run, persist, reload := m.ticket, m.do, m.persist, m.reload
 	return m, func() tea.Msg {
 		result := uiSaveDone{ticket: ticket, cfg: next, entry: entry}
 		if !isNew {
@@ -524,7 +573,7 @@ func (m model) saveEditor() (tea.Model, tea.Cmd) {
 				return result
 			}
 		}
-		result.err = persist(next)
+		result.err, result.reloaded, result.uncertain = uiPersistConfig(next, persist, reload)
 		return result
 	}
 }
@@ -557,26 +606,8 @@ func (m model) View() tea.View {
 	switch {
 	case m.width < 50 || m.height < 14:
 		lines = []string{"temo", "Resize to at least 50 columns and 14 rows.", m.statusLine(), "q quits when idle; started routes persist."}
-	case m.details:
-		lines = m.detailLines()
-	case m.editor != nil:
-		lines = m.formLines()
-	case m.help:
-		lines = []string{
-			"temo help", "",
-			"Up/Down or j/k  Select a route",
-			"Left/Right or 1/2  SSH / Serve tabs",
-			"s Start  x Stop  o Open  r Refresh all",
-			"a Add in this tab  e Edit  Ctrl+P SSH hosts",
-			"Form: Up/Down or Tab/Shift+Tab fields; j/k type",
-			"d or Enter Details; p Config file location",
-			"/ Search; arrows return to list; Esc clear",
-			"? or Esc Close help; q or Ctrl+C Quit",
-			"Setup ready is routing, not application health.",
-			"Refresh is read-only; navigation stays available.",
-			"Stop releases retained ownership before editing.",
-			"Started routes survive quitting.",
-		}
+	case m.details || m.deletion != nil || m.editor != nil || m.help:
+		lines = m.modalLines()
 	default:
 		lines = m.listLines()
 	}
@@ -601,7 +632,7 @@ func (m model) detailText() []string {
 			"Saved definitions are stored in config.json.",
 			"Private owner-<id>.json files track backend ownership.",
 			"Starting or stopping a route does not delete its definition.",
-			"Esc returns to the list.",
+			"Esc closes this dialog.",
 		}
 	} else if m.editor != nil {
 		raw = []string{
@@ -627,23 +658,24 @@ func (m model) detailText() []string {
 		}
 	}
 	var lines []string
+	width, _ := m.modalSize()
 	for _, line := range raw {
-		lines = append(lines, strings.Split(ansi.Hardwrap(line, max(1, m.width), true), "\n")...)
+		lines = append(lines, strings.Split(ansi.Wrap(line, width, ""), "\n")...)
 	}
 	return lines
 }
 
 func (m model) detailLines() []string {
 	content := m.detailText()
-	rows := max(1, m.height-2)
+	rows := m.detailPageSize()
 	start := uiClamp(m.detailsOffset, 0, max(0, len(content)-rows))
 	end := min(len(content), start+rows)
 	lines := []string{fmt.Sprintf("temo | Details %d-%d of %d", start+1, end, len(content))}
 	lines = append(lines, content[start:end]...)
-	for len(lines) < m.height-1 {
+	for len(lines) < rows+1 {
 		lines = append(lines, "")
 	}
-	return append(lines, "j/k scroll  PgUp/PgDown page  Esc return  q quit")
+	return append(lines, "j/k scroll  PgUp/PgDown page  Esc return")
 }
 
 func (m model) statusLine() string {
@@ -806,9 +838,10 @@ func (f uiEntryForm) entry() (Entry, error) {
 
 func (m model) formLines() []string {
 	form := m.editor
+	width, height := m.modalSize()
 	if picker := form.picker; picker != nil {
-		lines := []string{"temo | SSH hosts", fmt.Sprintf("%d configured hosts", len(picker.names)), ""}
-		rows := max(1, m.height-5)
+		lines := []string{"temo | SSH hosts", fmt.Sprintf("%d configured hosts", len(picker.names))}
+		rows := max(1, height-4)
 		start := max(0, picker.cursor-rows+1)
 		for i := start; i < min(len(picker.names), start+rows); i++ {
 			marker := "  "
@@ -820,13 +853,13 @@ func (m model) formLines() []string {
 		if len(picker.names) == 0 {
 			lines = append(lines, "No configured SSH hosts. Type a host in the form.")
 		}
-		return append(lines, "", "Up/Down or j/k select  Enter use  Esc cancel")
+		return append(lines, "", "↑/↓ j/k select  Enter use  Esc cancel")
 	}
 	title := "Edit route"
 	if form.isNew {
 		title = "Add route"
 	}
-	lines := []string{"temo | " + title + " [" + form.original.Kind + "]", "↑/↓ or Tab/Shift+Tab fields; j/k type text", "Ctrl+U clear; Left/Right move text cursor"}
+	lines := []string{"temo | " + title + " [" + form.original.Kind + "]", "↑/↓ Tab/Shift+Tab fields; j/k type"}
 	labels := [...]string{"Name", "SSH host", "Target host", "Target port", "Local port", "HTTPS port"}
 	for _, i := range form.visibleFields() {
 		label := labels[i]
@@ -835,7 +868,7 @@ func (m model) formLines() []string {
 			marker = ">"
 		}
 		prefix := fmt.Sprintf("%s %-18s ", marker, label)
-		lines = append(lines, prefix+form.fields[i].view(max(1, m.width-ansi.StringWidth(prefix)), i == form.focus))
+		lines = append(lines, prefix+form.fields[i].view(max(1, width-ansi.StringWidth(prefix)), i == form.focus))
 	}
 	message := m.statusLine()
 	if form.err != "" {
@@ -850,7 +883,14 @@ func (m model) formLines() []string {
 			hint = "Local port follows target until edited."
 		}
 	}
-	return append(lines, hint, message, "Ctrl+S save  Ctrl+P hosts  Ctrl+D error  Esc cancel")
+	if len(lines)+4 <= height {
+		lines = append(lines, "Ctrl+U clear; Left/Right move text cursor", hint)
+	}
+	footer := "Ctrl+S save  Ctrl+P hosts  Ctrl+D error  Esc cancel"
+	if ansi.StringWidth(footer) > width {
+		footer = "^S save  ^P hosts  ^D error  Esc cancel"
+	}
+	return append(lines, message, footer)
 }
 
 type uiTextField struct {

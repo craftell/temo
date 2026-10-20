@@ -38,6 +38,19 @@ jobs:
           fi
           cat "$evidence/result.txt" "$evidence/actions.log" "$evidence/cancellation.json"
           cat "$evidence"/*-list-ssh-bravo.txt "$evidence"/*-down-field.txt
+      - name: Real PTY modal and deletion smoke (disposable config)
+        if: runner.os == 'Linux'
+        run: |
+          evidence="$RUNNER_TEMP/temo-modal-evidence"
+          python3 .cursor/skills/verify-temo/verify-modal.py --binary ./temo --evidence "$evidence"
+          cat "$evidence/result.txt"
+      - name: Save modal smoke evidence
+        if: always() && runner.os == 'Linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: modal-smoke-${{ matrix.os }}
+          path: ${{ runner.temp }}/temo-modal-evidence
+          if-no-files-found: warn
       - name: Save keyboard smoke evidence
         if: always() && runner.os == 'Linux'
         uses: actions/upload-artifact@v4
