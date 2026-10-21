@@ -2,9 +2,9 @@
 
 ## Sub-features
 
-Add and edit named SSH or Serve connections in separate tabs. Choose an SSH Host name or type one. Validate forms, persist definitions, filter within a tab, discover the actual config path, and exclude a second writer.
+Add, edit, and safely delete named SSH or Serve definitions in separate tabs. Choose an SSH Host name or type one. Validate forms, persist definitions, recover from failed saves, filter within a tab, discover the actual config path, and exclude a second writer.
 
-Source entry points are `ui.go`'s `saveEditor`, `newUIEntryForm`, `visibleFields`, `visible`, `switchTab`, `updateKey`, and `uiEntryForm.entry`; `ssh_hosts.go`'s `configuredSSHHosts`; and `config.go`'s `OpenStore`, `Save`, and `atomicJSON`.
+Source entry points are `ui.go`'s `saveEditor`, `newUIEntryForm`, `visibleFields`, `visible`, `switchTab`, `updateKey`, and `uiEntryForm.entry`; `ui_delete.go`'s `openDelete`, `confirmDelete`, `uiPersistConfig`, `adoptReload`, and `reloadConfig`; `ssh_hosts.go`'s `configuredSSHHosts`; and `config.go`'s `OpenStore`, `Load`, `Save`, and `atomicJSON`.
 
 ## How to get to it (user POV)
 
@@ -21,6 +21,16 @@ Run the safe keyboard smoke from [the skill](../SKILL.md#safe-keyboard-smoke-lin
 Run [the extended helper](../SKILL.md#launch) for persistence and host selection. It submits an empty form, reads its error with Ctrl+D, and cancels. With a scratch HOME and included Host definitions, it opens Ctrl+P, chooses lab, and saves local-q-ssh. It reopens the picker while editing the name to local-ssh, confirms the current alias is selected, searches for a missing name and the saved name, and reopens the same config. The SSH journey starts the alias against a real throwaway loopback sshd.
 
 Require `Saved local-ssh`, the matching SSH-tab row after reopen, and matching config.json values with mode 0600. A second process using the same directory must exit with `another temo process`. Editing an active route must be refused. The Serve journeys create entries from the Serve tab without an SSH-only local-port or target-host field.
+
+## Deletion and failed-save recovery
+
+Press D on the selected route. The dialog freezes that definition and selects Cancel. Enter on Cancel, Esc, or n leaves it unchanged. Confirm with y, or Tab then Enter. Confirmation checks status again and deletes only a confirmed stopped definition. Retained ownership, active routes, pending checks, and uncertain status must refuse deletion. Deletion never invokes Stop or removes an ownership journal.
+
+Saving and deleting preserve the active filter, even when it hides the changed entry. Clear the filter or select the desired entry before the next backend action. Do not assume Add selects a row that the filter excludes.
+
+After a failed write, the UI reloads config.json before accepting more changes. If the reload fails, cancel the form or dialog and repair the config file, then press r. Changes remain blocked while reload fails. If the write reached disk before its error, inspect the loaded result rather than retrying the stale form.
+
+Run [the modal helper](../SKILL.md#modal-and-deletion-changes). Require unchanged hashes and no backend calls for cancellation, refusal when ownership appears after the dialog opens, and unchanged surviving entry fields and journals after confirmed deletion. Its disposable unreadable-config fixture checks mutation blocking, a failed r, and successful recovery after restoring the file. The Go suite covers failed writes both before and after a committed rename, including stale form retries.
 
 ## Gotchas
 
