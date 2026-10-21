@@ -121,7 +121,7 @@ func TestUIHostPickerViewportAndCurrentSelection(t *testing.T) {
 		t.Fatal("reopening did not select the current SSH host")
 	}
 	m = uiInput(t, m, tea.KeyPressMsg{Code: tea.KeyPgUp})
-	if !strings.Contains(m.View().Content, "> host30") {
+	if !strings.Contains(m.View().Content, "> host35") {
 		t.Fatal("PageUp did not move by the host viewport")
 	}
 }

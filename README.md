@@ -78,12 +78,16 @@ The SSH alias must already work noninteractively. Authenticate and accept its ho
 
 - Up/Down or `j`/`k` select a row. Left/Right or `1`/`2` switch SSH and Serve tabs. Each tab remembers its filter and selection.
 - `/` searches within the current tab. Enter or Up/Down returns to row navigation; Esc clears the filter.
-- `a` adds an entry. `e` edits a stopped entry.
+- `a` adds an entry. `e` edits a stopped entry. `D` opens a delete-definition confirmation with Cancel selected.
 - `s` starts the selected entry. `x` stops its managed backend.
 - `r` refreshes every saved route across both tabs. Startup does this automatically. `o` opens the selected URL.
 - `d` or Enter shows full details. `p` shows the resolved config file path. `?` shows help. `q` quits.
 - In a form, Ctrl+P lists Host names from `~/.ssh/config` and its Include files. Use arrows and Enter to choose, or Esc to return without a change. Wildcard patterns and Match blocks are skipped. Manual names and blank-host local Serve still work.
 - In a form, Up/Down or Tab/Shift+Tab changes fields. Enter advances; Left/Right moves the text cursor. `j` and `k` are ordinary text. Ctrl+S saves, Esc cancels, and Ctrl+D opens a scrollable form error.
+
+Forms, details, help, config location, and the SSH host picker open as centered modals over the route list. Esc closes the current modal and returns to the previous one without discarding an underlying form. Filters and list selection remain in place.
+
+To delete a definition, select it and press `D`. Press `y`, or select Delete with Tab or an arrow and press Enter. Esc, `n`, or Enter on Cancel leaves it unchanged. Deletion checks the route again and requires a confirmed stopped backend. If a route is active, has retained ownership, or has an uncertain status, cancel and use `x` first. Deletion never stops a connection or removes ownership journals. A failed configuration write is reloaded before further changes. If the saved file cannot be read, mutations stay blocked until `r` reloads it successfully.
 
 Status checks run up to four at a time and update rows as they finish. Navigation, search, help, forms, and quitting stay available during refresh. Repeating `r` while a sweep is running does not duplicate checks. A selected entry cannot be changed until its in-flight check finishes. Start, Stop, Open, and edit/save checks remain serialized; quitting waits for these explicit operations.
 
@@ -91,7 +95,7 @@ A ready status means the backend is configured. It does not prove that the appli
 
 ## Persistence and ownership
 
-Quitting temo leaves started forwards and Serve routes running. Reopening temo checks every saved route without starting or stopping anything. Status checks never write definitions or ownership journals. A confirmed absent backend with retained ownership displays `stopped; cleanup needed`; use `x` to release that ownership before editing. Pending or ambiguous outcomes remain errors. Reopen temo with the same config directory to inspect or stop routes. No background temo daemon is required.
+Quitting temo leaves started forwards and Serve routes running. Reopening temo checks every saved route without starting or stopping anything. Status checks never write definitions or ownership journals. A confirmed absent backend with retained ownership displays `stopped; cleanup needed`; use `x` to release that ownership before editing or deleting its definition. Pending or ambiguous outcomes remain errors. Reopen temo with the same config directory to inspect or stop routes. No background temo daemon is required.
 
 Definitions live in `config.json` in the OS user config directory under `temo`. On macOS this is normally `~/Library/Application Support/temo/config.json`. On Linux it is `$XDG_CONFIG_HOME/temo/config.json`, or `~/.config/temo/config.json` when XDG_CONFIG_HOME is unset. Press `p` to see the exact resolved path, including any `--config-dir` override. Per-entry `owner-<id>.json` journals and SSH control sockets live beside it. Use `--config-dir /absolute/private/path` to choose another directory. The directory must have mode 0700. Config files contain connection metadata, not passwords or keys.
 

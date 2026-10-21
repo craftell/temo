@@ -39,3 +39,13 @@ Compare the normal color view with NO_COLOR=1 and TERM=dumb. Header, active tab,
 In a new SSH form, confirm Target port and Local port begin at 3000. Clear Target port and type or paste another valid port; Local port follows. Move through Local port with cursor keys without editing, then change Target port again; follow remains enabled. Edit Local port, then change Target port; the local override remains. Cancel and reopen the form; defaults reset. Edit an existing stopped route with different ports and confirm neither port changes without an explicit field edit. Serve HTTPS remains independent.
 
 The safe PTY helper exercises terminal input with denying stubs. Go rendering tests cover width and Unicode layout. A successful test does not establish native macOS terminal appearance or real Tailscale reachability; record those separately when inspected.
+
+## Modal interactions and deletion
+
+Run `python3 .cursor/skills/verify-temo/verify-modal.py --evidence "$EVIDENCE"` in a new evidence directory. The helper uses the shared PTY screen decoder and disposable definitions. Its backend commands are read-only denying stubs.
+
+Check that the list stays behind add, edit, details, help, config location, and host-picker modals. Open config location from help and press Esc to return to help. Open the host picker from an unsaved form and press Esc to return without losing input. At 50 columns and 14 rows, move through every field and verify that focus and cancel remain visible. Resize below the minimum and back while editing.
+
+Press `D` on a stopped entry. Enter on the default Cancel button and Esc must leave config and ownership hashes unchanged. Confirm deletion with `y` or Tab then Enter. The active filter stays in place even if no row matches afterward. A route with retained ownership must refuse deletion and retain its journal byte for byte. No deletion path may invoke Stop, remove a journal, or change another definition.
+
+Go tests cover fresh unsafe states, failed and uncertain saves, empty lists, queued refreshes, stale completions, and Unicode dimensions. PTY captures prove rendered Linux input behavior. Neither establishes native macOS appearance or real backend reachability.

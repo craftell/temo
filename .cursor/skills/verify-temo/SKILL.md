@@ -176,3 +176,11 @@ The updater is never exercised on the installed `temo`, a package-manager binary
 ## Table presentation changes
 
 After route-table or port-default changes, use the expanded [terminal navigation recipe](features/terminal-navigation.md#route-table-and-port-defaults). Review current-screen text captures and terminal.raw from the safe PTY smoke. Read the table renderer tests alongside the captures. Preserve the distinction between generated terminal evidence, a human visual review, and backend integration checks. The table feature adds no automatic route mutations.
+
+## Modal and deletion changes
+
+Use [verify-modal.py](verify-modal.py) and the [modal recipe](features/terminal-navigation.md#modal-interactions-and-deletion) after changes to deletion, focus, or modal rendering. Run the existing safe keyboard smoke as well. The modal helper writes only its own temporary definitions, retains the unrelated ownership journal, and refuses all mutating backend commands. Its numbered text and SVG captures show the current screen, not historical terminal output.
+
+Do not infer that a failed Store.Save left disk unchanged. Unit tests must cover a save that reports an error after the new config became readable, and an unreadable outcome that blocks further mutation. Confirm deletion checks status again and permits only `stopped`, never `inactive`.
+
+The modal and deletion helpers were executed on Linux amd64 with Go 1.25.5 and Python 3.12 for the 0.5.0 change based on `eedf2354`. Both `verify-keyboard.py` and `verify-modal.py` passed with disposable config and read-only denying backends. The real PTY exercised cancellation, retained-ownership refusal, confirmed persisted deletion, nested dialogs, and resize. Independent review also added unit regressions preventing invisible confirmations below 50 by 14. See the [retained PTY renderings](../../../docs/verification/modal-0.5.0/README.md). Native macOS terminals, real SSH/Tailscale routes, and release publication were not run.

@@ -107,13 +107,14 @@ class Screen:
         self.replies = []
         self.style = ("#d8dee9", "#111827", False)
         self.color_events = 0
+        self.scroll_top, self.scroll_bottom = 0, rows - 1
 
     def newline(self):
-        self.row += 1
-        if self.row == self.rows:
-            self.grid.pop(0)
-            self.grid.append([" "] * self.cols)
-            self.row -= 1
+        if self.row == self.scroll_bottom:
+            self.grid.pop(self.scroll_top)
+            self.grid.insert(self.scroll_bottom, [" "] * self.cols)
+        else:
+            self.row = min(self.rows - 1, self.row + 1)
 
     def feed(self, data):
         self.pending += self.decoder.decode(data)
@@ -153,7 +154,11 @@ class Screen:
                     self.newline()
                     self.col = 0
                 elif code == "M":
-                    self.row = max(0, self.row - 1)
+                    if self.row == self.scroll_top:
+                        self.grid.pop(self.scroll_bottom)
+                        self.grid.insert(self.scroll_top, [" "] * self.cols)
+                    else:
+                        self.row = max(0, self.row - 1)
                 elif code == "c":
                     self.grid = [[" "] * self.cols for _ in range(self.rows)]
                     self.row = self.col = 0
@@ -214,22 +219,29 @@ class Screen:
             self.grid[r] = (self.grid[r][:c] + self.grid[r][c + n:] + [" "] * n)[:self.cols]
         elif final == "@":
             self.grid[r] = (self.grid[r][:c] + [" "] * n + self.grid[r][c:])[:self.cols]
+        elif final == "r" and not private:
+            top = n - 1
+            bottom = (values[1] if len(values) > 1 and values[1] else self.rows) - 1
+            assert 0 <= top < bottom < self.rows, "invalid terminal scroll region"
+            self.scroll_top, self.scroll_bottom = top, bottom
+            self.row = self.col = 0
         elif final in "LM":
-            for _ in range(min(n, self.rows - r)):
-                if final == "L":
-                    self.grid.insert(r, [" "] * self.cols)
-                    self.grid.pop()
-                else:
-                    self.grid.pop(r)
-                    self.grid.append([" "] * self.cols)
+            if self.scroll_top <= r <= self.scroll_bottom:
+                for _ in range(min(n, self.scroll_bottom - r + 1)):
+                    if final == "L":
+                        self.grid.pop(self.scroll_bottom)
+                        self.grid.insert(r, [" "] * self.cols)
+                    else:
+                        self.grid.pop(r)
+                        self.grid.insert(self.scroll_bottom, [" "] * self.cols)
         elif final in "ST":
-            for _ in range(min(n, self.rows)):
+            for _ in range(min(n, self.scroll_bottom - self.scroll_top + 1)):
                 if final == "S":
-                    self.grid.pop(0)
-                    self.grid.append([" "] * self.cols)
+                    self.grid.pop(self.scroll_top)
+                    self.grid.insert(self.scroll_bottom, [" "] * self.cols)
                 else:
-                    self.grid.pop()
-                    self.grid.insert(0, [" "] * self.cols)
+                    self.grid.pop(self.scroll_bottom)
+                    self.grid.insert(self.scroll_top, [" "] * self.cols)
         elif final == "b":
             char = self.grid[r][max(0, c - 1)]
             for _ in range(n):
@@ -318,6 +330,7 @@ class Screen:
         self.grid = [(row[:cols] + [" "] * cols)[:cols] for row in self.grid[:rows]]
         self.grid += [[" "] * cols for _ in range(rows - len(self.grid))]
         self.rows, self.cols = rows, cols
+        self.scroll_top, self.scroll_bottom = 0, rows - 1
         self.row, self.col = min(self.row, rows - 1), min(self.col, cols - 1)
 
     def svg(self):
@@ -552,13 +565,13 @@ def main():
                 assert endpoints[port_at:target_at].strip() == f":{port}", endpoints
                 assert endpoints[target_at:].strip(" │") == "127.0.0.1:3000", endpoints
         def field_value(text, label):
-            match = re.search(r"^[ >]\s+" + re.escape(label) + r"\s+(.*)$", text, re.M)
+            match = re.search(r"^[ │]*[ >]\s+" + re.escape(label) + r"\s+(.*?)\s*│?\s*$", text, re.M)
             assert match, ("missing form field", label)
             return match.group(1).replace("│", "").strip()
         def ports(target, local):
             return lambda s: field_value(s, "Target port") == target and field_value(s, "Local port") == local
         def focus(label):
-            return lambda s: bool(re.search(r"^>\s+" + re.escape(label) + r"(?:\s|$)", s, re.M))
+            return lambda s: bool(re.search(r"^[ │]*>\s+" + re.escape(label) + r"(?:\s|$)", s, re.M))
         def move(data, predicate, label):
             ui.send(data)
             return ui.expect(predicate, label)
@@ -577,10 +590,10 @@ def main():
                             (b"2", ["Name", "SSH host", "Target port", "HTTPS port"])):
             ui.send(tab)
             screen = move(b"a", focus("Name"), "add-" + tab.decode())
-            field_labels = re.findall(r"^[ >]\s+(Name|Kind[^ ]*|SSH host|Target host|Target port|Local port|HTTPS port)\b", screen, re.M)
+            field_labels = re.findall(r"^[ │]*[ >]\s+(Name|Kind[^ ]*|SSH host|Target host|Target port|Local port|HTTPS port)\b", screen, re.M)
             assert field_labels == labels, (field_labels, labels)
             screen = move(b"jk", focus("Name"), "literal-jk-" + tab.decode())
-            assert re.search(r"^>\s+Name\s+jk", screen, re.M), "j/k were not entered as text"
+            assert re.search(r"^[ │]*>\s+Name\s+jk", screen, re.M), "j/k were not entered as text"
             move(b"\x1b[B", focus(labels[1]), "down-field")
             move(b"\t", focus(labels[2]), "tab-field")
             move(b"\x1b[Z", focus(labels[1]), "shift-tab-field")

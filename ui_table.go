@@ -240,7 +240,7 @@ func (m model) listLines() []string {
 		palette.paint("Application reachability is unverified.", "90"),
 		m.statusLine(),
 		"↑/↓ j/k move  s start  x stop  r refresh",
-		"a add  e edit  o open  d details  ? help  q quit",
+		"a add  e edit  D delete  d details  ? help  q quit",
 	)
 	return lines
 }

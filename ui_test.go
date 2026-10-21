@@ -396,7 +396,7 @@ func TestUIDetailsShowsFullErrorsAndScrolls(t *testing.T) {
 	if !strings.Contains(m.View().Content, "temo | Details") {
 		t.Fatal("d did not open details")
 	}
-	for i := 0; i < 20; i++ {
+	for i := 0; i < len(m.detailText())/m.detailPageSize()+1; i++ {
 		m = uiInput(t, m, tea.KeyPressMsg{Code: tea.KeyPgDown})
 	}
 	content := m.View().Content
@@ -417,6 +417,8 @@ func TestUIFormErrorDetailsPreserveUnsavedInput(t *testing.T) {
 	t.Setenv("NO_COLOR", "1")
 	m := uiTestModel(uiTestEntry("Original"))
 	m.do = func(Entry, string) Result { return Result{State: "stopped"} }
+	// This retry scenario can establish that the failed save left disk unchanged.
+	m.reload = func() (Config, error) { return cloneUIConfig(m.cfg), nil }
 	m.persist = func(cfg Config) error {
 		if cfg.Entries[0].Name != "Renamed" {
 			t.Fatal("save did not receive the edited name")
@@ -435,7 +437,7 @@ func TestUIFormErrorDetailsPreserveUnsavedInput(t *testing.T) {
 		t.Fatal("Ctrl+D did not open full form errors")
 	}
 	m = uiInput(t, m, tea.PasteMsg{Content: "must not edit the hidden form"})
-	for i := 0; i < 20; i++ {
+	for i := 0; i < len(m.detailText())/m.detailPageSize()+1; i++ {
 		m = uiInput(t, m, tea.KeyPressMsg{Code: tea.KeyPgDown})
 	}
 	content := m.View().Content
