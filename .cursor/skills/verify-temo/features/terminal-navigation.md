@@ -4,7 +4,7 @@
 
 Switch SSH/Serve tabs, select routes and configured SSH hosts, search, edit text, inspect the actual config path, view full errors, scroll details, show help, and resize. Startup and r inspect all saved entries asynchronously without blocking navigation or quit.
 
-Source entry points are `ui.go`'s `updateKey`, `startRefresh`, `fillRefresh`, `switchTab`, `View`, `detailLines`, `detailText`, and `uiTextField.edit`.
+Source entry points are `ui.go`'s `updateKey`, `startRefresh`, `fillRefresh`, `switchTab`, `View`, `detailLines`, `detailText`, and `uiTextField.edit`; `ui_modal.go`'s `modalLines`, `modalSize`, and `uiOverlayModalSize`; and `ui_delete.go`'s `updateDeleteKey`, `confirmDelete`, and `deleteLines`.
 
 ## How to get to it (user POV)
 
@@ -46,6 +46,10 @@ Run `python3 .cursor/skills/verify-temo/verify-modal.py --evidence "$EVIDENCE"` 
 
 Check that the list stays behind add, edit, details, help, config location, and host-picker modals. Open config location from help and press Esc to return to help. Open the host picker from an unsaved form and press Esc to return without losing input. At 50 columns and 14 rows, move through every field and verify that focus and cancel remain visible. Resize below the minimum and back while editing.
 
-Press `D` on a stopped entry. Enter on the default Cancel button and Esc must leave config and ownership hashes unchanged. Confirm deletion with `y` or Tab then Enter. The active filter stays in place even if no row matches afterward. A route with retained ownership must refuse deletion and retain its journal byte for byte. No deletion path may invoke Stop, remove a journal, or change another definition.
+Press `D` on a stopped entry. Require the visible `[ Cancel ]` selection. Enter, Esc, and n must leave config and ownership hashes unchanged and issue no backend command. List-movement keys and pasted y must not change the frozen target or confirm. Confirm deletion with `y` or Tab then Enter. The active filter stays in place even if no row matches afterward. Compare every surviving definition field, not just names, and retain unrelated journals byte for byte. No deletion path may invoke Stop.
+
+The modal helper adds ownership to its stopped fixture after the dialog opens. Confirmation must perform a fresh read-only check and refuse deletion. It also selects Delete, resizes below 50 by 14, tries Enter and y, and requires unchanged files. After restoring 50 by 14, Cancel and the action footer must be visible.
+
+Follow the [failed-save recipe](saved-entries.md#deletion-and-failed-save-recovery) for unreadable outcomes and r recovery. Those checks use disposable files only. A filesystem fault after rename remains covered by the Go regression's simulated error, not by this PTY fixture.
 
 Go tests cover fresh unsafe states, failed and uncertain saves, empty lists, queued refreshes, stale completions, and Unicode dimensions. PTY captures prove rendered Linux input behavior. Neither establishes native macOS appearance or real backend reachability.

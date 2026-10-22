@@ -281,8 +281,12 @@ Host inherited
                 self.text(value)
             self.key(advance)
         self.capture("filled-form")
+        active_filter = re.search(r"Filter: (.*?) \(Esc clears\)", form)
         self.key("C-s")
-        self.wait("Saved " + name, "saved")
+        saved = self.wait("Saved " + name, "saved")
+        if active_filter:
+            assert "Filter: " + active_filter.group(1) + " (Esc clears)" in saved, "save lost the active filter"
+        self.select(name)
 
     def select(self, name):
         entries = json.loads((self.config / "config.json").read_text())["entries"]

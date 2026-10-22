@@ -5,9 +5,9 @@ description: Verify temo after UI, connection, release, or installer changes. Dr
 
 # Verify temo
 
-Run the [feature map](features/README.md) against the built app. The bundled helper drives every mapped feature through terminal keys, not internal model calls.
+Run the [feature map](features/README.md) against the built app. The keyboard, modal, and loopback helpers drive the TUI through terminal keys. The release and update helpers exercise the command line and installer.
 
-Last executed on Linux amd64 with Go 1.25.5, tmux 3.4, and OpenSSH 9.6p1, on `fix/keyboard-navigation-and-status` at base `8a17233` plus the start-failure wording fix. Both [verify-keyboard.py](verify-keyboard.py) and [verify.py](verify.py) printed PASS, and `GOFLAGS=-buildvcs=false` was set for the local build (see Launch). The extended run covered real loopback SSH forwarding, stale and failed-start ownership, the tab and refresh journeys below, and quit during refresh. Serve remains stubbed. Not run: native macOS terminal, real Tailscale Serve or Funnel, tailnet HTTPS, and a graphical browser. After later changes, rerun the helpers or inspect that commit's CI result and retained artifacts before claiming runtime coverage.
+An earlier keyboard and loopback run was executed on Linux amd64 with Go 1.25.5, tmux 3.4, and OpenSSH 9.6p1, on `fix/keyboard-navigation-and-status` at base `8a17233` plus the start-failure wording fix. Both [verify-keyboard.py](verify-keyboard.py) and [verify.py](verify.py) printed PASS, and `GOFLAGS=-buildvcs=false` was set for the local build (see Launch). The extended run covered real loopback SSH forwarding, stale and failed-start ownership, the tab and refresh journeys below, and quit during refresh. Serve remains stubbed. Not run: native macOS terminal, real Tailscale Serve or Funnel, tailnet HTTPS, and a graphical browser. After later changes, rerun the helpers or inspect that commit's CI result and retained artifacts before claiming runtime coverage.
 
 Self-update was last executed on Linux amd64 with Go 1.25.5, Python 3.12, and OpenSSL, on `feat/self-update` at base `08e8206` plus the verification-skill edits (see [self-update](features/self-update.md)). [verify-update.py](verify-update.py) printed PASS for 53 scenarios against the real binary, including the real GoReleaser snapshot archive. The release helper printed PASS with the stamped channel check, and the keyboard smoke printed PASS. A scratch binary stamped 0.1.0 upgraded to the published v0.2.0 over real GitHub inside a scratch directory. Not run: macOS, an upgrade to the unpublished 0.3.0, and the tag-triggered release workflow.
 
@@ -90,7 +90,7 @@ A live process without the expected rendered screen is not a successful doctor c
 The executable [verify.py](verify.py) drives these journeys in one private tmux server, reopening the app with the same scratch config.
 
 1. Reject a second writer. Show an invalid form and its full error. Add an SSH entry from the SSH tab, open Ctrl+P, pick `lab` from the included scratch Host names, and save. Reopen the picker while editing the stopped entry and confirm `lab` stays selected. Inspect the saved JSON and mode 0600.
-2. Open p and verify the actual config.json path. Search for a missing name and a saved name in the active tab. Show help. Resize to 60 by 20, below the supported minimum, and back to 100 by 32.
+2. Open p and verify the actual config.json path. Search for a missing name and a saved name in the active tab. Show help. Resize to 60 by 20, then below the minimum at 40 by 10, and back to 100 by 32.
 3. Start real loopback SSH with an inherited `GatewayPorts yes`. Reach the HTTP target through `127.0.0.1` and reject a connection through `127.0.0.2`. Check the private active ownership record.
 4. Open the SSH URL through a logging opener stub. Refuse editing while active. Quit, confirm HTTP still responds, reopen, refresh, and stop. Confirm the forward disappears and an unrelated scratch ControlMaster survives.
 5. Reject an SSH alias with an inherited forwarding rule.
@@ -179,8 +179,21 @@ After route-table or port-default changes, use the expanded [terminal navigation
 
 ## Modal and deletion changes
 
-Use [verify-modal.py](verify-modal.py) and the [modal recipe](features/terminal-navigation.md#modal-interactions-and-deletion) after changes to deletion, focus, or modal rendering. Run the existing safe keyboard smoke as well. The modal helper writes only its own temporary definitions, retains the unrelated ownership journal, and refuses all mutating backend commands. Its numbered text and SVG captures show the current screen, not historical terminal output.
+Use [verify-modal.py](verify-modal.py) and the [modal recipe](features/terminal-navigation.md#modal-interactions-and-deletion) after changes to deletion, focus, or modal rendering. It needs Linux, Python 3.9+, and Go 1.25+, with no SSH server or credentials. Run the existing safe keyboard smoke and the extended loopback helper as well. Saving now keeps the active filter, so the loopback helper explicitly selects each added route before any backend action.
+
+```sh
+MODAL_EVIDENCE=$(mktemp -d /tmp/temo-modal-evidence-XXXXXXXX)
+python3 .cursor/skills/verify-temo/verify-modal.py --evidence "$MODAL_EVIDENCE"
+```
+
+The modal helper writes only temporary definitions and ownership fixtures. It refuses all mutating backend commands and keeps the unrelated ownership journal unchanged. It adds a disposable journal after opening a stopped route's dialog to prove the confirmation checks fresh status. It temporarily replaces its own config file with an empty directory to force a failed save and unreadable reload, then restores the file and checks recovery with r. It never alters the user's config.
+
+The helper checks Cancel, Esc and n without backend calls, frozen selection, ignored pasted confirmation, hidden-confirmation refusal after resize, exact surviving definitions, and unknown-outcome blocking. Its numbered text and SVG captures show the current screen, not historical terminal output. It retains before/after hashes, fixture JSON, raw terminal output, actions and backend logs. PASS is written only after cleanup.
 
 Do not infer that a failed Store.Save left disk unchanged. Unit tests must cover a save that reports an error after the new config became readable, and an unreadable outcome that blocks further mutation. Confirm deletion checks status again and permits only `stopped`, never `inactive`.
 
 The modal and deletion helpers were executed on Linux amd64 with Go 1.25.5 and Python 3.12 for the 0.5.0 change based on `eedf2354`. Both `verify-keyboard.py` and `verify-modal.py` passed with disposable config and read-only denying backends. The real PTY exercised cancellation, retained-ownership refusal, confirmed persisted deletion, nested dialogs, and resize. Independent review also added unit regressions preventing invisible confirmations below 50 by 14. See the [retained PTY renderings](../../../docs/verification/modal-0.5.0/README.md). Native macOS terminals, real SSH/Tailscale routes, and release publication were not run.
+
+A maintenance run on 2026-10-21 tested `cc93fec` plus skill-only corrections on Linux amd64, Go 1.25.5, Python 3.12.12, and tmux 3.4. The original extended helper failed because it acted on an old filtered entry after Add. After explicit selection was added, `verify.py` passed its full real-loopback SSH and stub Serve journeys. The expanded `verify-modal.py` and unchanged `verify-keyboard.py` passed. Fresh Go race tests, vet, gofmt and diff checks passed. The release helper passed with GoReleaser 2.12.7 and ShellCheck 0.11.0, including all four archive targets. The update helper passed 53 loopback TLS scenarios with the real snapshot archive. An environment-only `GORELEASER_CURRENT_TAG=v0.5.0` snapshot stamped `0.5.0-SNAPSHOT-cc93fec`; tag refs did not change.
+
+That run used the approved host-only `GOFLAGS=-buildvcs=false` because Go's VCS discovery failed with exit 128 in the worktree. Evidence is retained in the review task's `data/modal-definition-delete/` directory, including the original failure and corrected runs. The added failure checks ran against the real binary. The after-rename save-error case remains a Go regression, not a real filesystem fault test. Native macOS, real Tailscale, remote SSH, public-release self-update and publishing were not run in this maintenance pass.
