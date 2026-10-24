@@ -95,6 +95,10 @@ A ready status means the backend is configured. It does not prove that the appli
 
 ## Persistence and ownership
 
+Definitions may share a display name or listening port. Each definition has its own ID, and operations apply to the selected row, not its name. Saving does not reserve a port or require a reachable backend. Conflicts are checked when starting: SSH uses its actual local bind result, and Serve checks the actual execution node’s HTTPS configuration. Stop the active alternative before starting another on the same endpoint.
+
+A `stopped` definition without an ownership journal means **no backend managed by this definition**, not that the port is free. It can be edited or deleted offline even if another definition or program uses that port. Starting still refuses occupied endpoints; Stop never stops another definition’s backend. Owned, pending, or uncertain routes retain the existing safety checks.
+
 Quitting temo leaves started forwards and Serve routes running. Reopening temo checks every saved route without starting or stopping anything. Status checks never write definitions or ownership journals. A confirmed absent backend with retained ownership displays `stopped; cleanup needed`; use `x` to release that ownership before editing or deleting its definition. Pending or ambiguous outcomes remain errors. Reopen temo with the same config directory to inspect or stop routes. No background temo daemon is required.
 
 Definitions live in `config.json` in the OS user config directory under `temo`. On macOS this is normally `~/Library/Application Support/temo/config.json`. On Linux it is `$XDG_CONFIG_HOME/temo/config.json`, or `~/.config/temo/config.json` when XDG_CONFIG_HOME is unset. Press `p` to see the exact resolved path, including any `--config-dir` override. Per-entry `owner-<id>.json` journals and SSH control sockets live beside it. Use `--config-dir /absolute/private/path` to choose another directory. The directory must have mode 0700. Config files contain connection metadata, not passwords or keys.

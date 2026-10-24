@@ -36,6 +36,12 @@ Run [the modal helper](../SKILL.md#modal-and-deletion-changes). Require unchange
 
 The host list follows Include files and skips wildcard patterns and Match blocks. A missing or unreadable config gives an empty list. The picker reads names and never changes SSH config. Manual typing and blank-host local Serve remain available.
 
-Editing requires a confirmed stopped state before opening and saving. A pending check, a status error, an active route, or retained ownership needing cleanup must not bypass this guard. Refresh is read-only and leaves stale ownership records intact; explicit stop releases those records before editing. Definitions remain saved after stop.
+Editing requires a confirmed stopped state before opening and saving. For an unowned definition this is determined locally, without requiring SSH/Tailscale availability or a free endpoint. For an owned definition, a pending check, a status error, an active route, or retained ownership needing cleanup must not bypass this guard. Refresh is read-only and leaves stale ownership records intact; explicit stop releases those records before editing. Definitions remain saved after stop.
 
 The scratch config and generated alias are test fixtures, not normal user definitions. The updated loopback recipe passed on Linux for this branch. Source coverage and runtime coverage stay separate, and that run did not use a native macOS terminal.
+
+## Alternative definitions (0.5.1)
+
+Run `python3 .cursor/skills/verify-temo/verify-definitions.py --binary ./temo --evidence /path/to/new-empty-evidence` on Linux. This real PTY recipe uses an empty backend PATH and disposable config. It loads equal names and HTTPS ports, edits the second row by ID offline, adds another same-name/same-port definition, deletes only the selected ID, and reopens the file. No backend or credentials are needed.
+
+The Go regression suite additionally covers SSH and Serve duplicate roundtrips, rejection of duplicate IDs, untouched active ownership on a competing start, and Serve start-after-stop. Names are display labels, not identifiers. `stopped` does not promise a free port; Start must reject real collisions without takeover. Owned/pending/stale ownership guards remain in effect.
