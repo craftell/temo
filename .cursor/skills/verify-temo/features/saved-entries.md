@@ -40,7 +40,7 @@ Editing requires a confirmed stopped state before opening and saving. For an uno
 
 The scratch config and generated alias are test fixtures, not normal user definitions. The updated loopback recipe passed on Linux for this branch. Source coverage and runtime coverage stay separate, and that run did not use a native macOS terminal.
 
-## Alternative definitions (0.5.1)
+## Alternative definitions (0.6.0)
 
 Run `python3 .cursor/skills/verify-temo/verify-definitions.py --binary ./temo --evidence /path/to/new-empty-evidence` on Linux. This real PTY recipe uses an empty backend PATH and disposable config. It loads equal names and HTTPS ports, edits the second row by ID offline, adds another same-name/same-port definition, deletes only the selected ID, and reopens the file. No backend or credentials are needed.
 
