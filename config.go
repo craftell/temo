@@ -93,19 +93,17 @@ func (c Config) Validate() error {
 	if c.Version != 1 {
 		return fmt.Errorf("unsupported config version %d", c.Version)
 	}
-	ids, names, endpoints := map[string]bool{}, map[string]bool{}, map[string]bool{}
+	ids := map[string]bool{}
 	for _, e := range c.Entries {
 		if err := e.Validate(); err != nil {
 			return fmt.Errorf("%s: %w", e.Name, err)
 		}
-		key := fmt.Sprintf("ssh:%d", e.LocalPort)
-		if e.Kind == "serve" {
-			key = fmt.Sprintf("serve:%s:%d", e.SSHHost, e.ServePort)
+		// Names and listening endpoints describe definitions, not ownership.
+		// Alternative routes may share either; actual conflicts are checked at Start.
+		if ids[e.ID] {
+			return errors.New("entry IDs must be unique")
 		}
-		if ids[e.ID] || names[e.Name] || endpoints[key] {
-			return errors.New("entry IDs, names, and listening endpoints must be unique")
-		}
-		ids[e.ID], names[e.Name], endpoints[key] = true, true, true
+		ids[e.ID] = true
 	}
 	return nil
 }

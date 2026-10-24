@@ -152,7 +152,7 @@ func TestServeOwnershipAndDrift(t *testing.T) {
 		t.Fatal(got)
 	}
 	config = serveJSON(e, false)
-	if got := g.Do(e, "start"); got.State != "error" || !strings.Contains(got.Detail, "outside temo") {
+	if got := g.Do(e, "start"); got.State != "error" || !strings.Contains(got.Detail, "already configured") {
 		t.Fatal(got)
 	}
 }
@@ -188,9 +188,12 @@ func TestServeSnapshotRejectsFunnelAndForeground(t *testing.T) {
 		}
 	}
 }
-func TestDependencyFailureIsNotStopped(t *testing.T) {
+func TestOwnedDependencyFailureIsNotStopped(t *testing.T) {
 	r := &fakeRunner{run: func(string, []string) ([]byte, error) { return nil, errors.New("missing tailscale") }}
 	g := Engine{Store: testStore(t), Runner: r}
+	if err := g.remember(Ownership{Entry: exampleServe(), Phase: "active"}); err != nil {
+		t.Fatal(err)
+	}
 	if got := g.Do(exampleServe(), "status"); got.State != "error" {
 		t.Fatal(got)
 	}

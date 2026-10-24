@@ -74,6 +74,19 @@ func (g *Engine) do(parent context.Context, e Entry, action string) Result {
 	if err := e.Validate(); err != nil {
 		return failed(err)
 	}
+	// A definition without an ownership journal has no backend managed by temo.
+	// Do not require an available SSH/Tailscale installation or a free endpoint
+	// merely to inspect, edit, delete, or stop that saved definition. Start still
+	// checks the real backend and never adopts an unowned listener.
+	if action == "status" || action == "stop" {
+		_, owned, err := g.ownership(e)
+		if err != nil {
+			return failed(err)
+		}
+		if !owned {
+			return stopped()
+		}
+	}
 	ctx, cancel := context.WithTimeout(parent, 25*time.Second)
 	defer cancel()
 	var result Result
@@ -381,7 +394,7 @@ func (g *Engine) serve(ctx context.Context, e Entry, action string) (Result, err
 		return Result{}, errors.New("Serve configuration changed outside temo; refusing to modify it")
 	}
 	if !owned && used {
-		return Result{}, errors.New("this HTTPS port is already configured outside temo; choose an unused port")
+		return Result{}, errors.New("this HTTPS port is already configured by another definition or program; stop the conflicting route before starting this definition")
 	}
 	url := "https://" + net.JoinHostPort(dns, strconv.Itoa(e.ServePort)) + "/"
 	if action == "status" {
